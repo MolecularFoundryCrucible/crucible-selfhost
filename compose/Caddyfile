@@ -5,9 +5,31 @@
 encode zstd gzip
 
 redir /api/v3 /api/v3/ permanent
+redir /hub /hub/ permanent
+
+# Hub sign-in: small requests only, and a bounded wait for the API, as the Foundry's front door sets.
+handle /api/v3/auth/hub/* {
+	request_body {
+		max_size 8KB
+	}
+	uri strip_prefix /api/v3
+	reverse_proxy api:8000 {
+		transport http {
+			response_header_timeout 20s
+		}
+	}
+}
 
 handle_path /api/v3/* {
 	reverse_proxy api:8000
+}
+
+# The Hub keeps its /hub prefix. CRUCIBLE_HUB_UPSTREAM is read per request, so an empty value
+# (no Hub) needs no other change here.
+handle /hub/* {
+	@no_hub `{env.CRUCIBLE_HUB_UPSTREAM} == ""`
+	respond @no_hub "The Hub is not installed on this server" 404
+	reverse_proxy {env.CRUCIBLE_HUB_UPSTREAM}
 }
 
 handle {
