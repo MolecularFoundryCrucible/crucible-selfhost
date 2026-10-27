@@ -1,0 +1,15 @@
+# CRUCIBLE_SITE_ADDRESS is ":80" for plain HTTP on the published port, or a domain name
+# (for example crucible.mylab.org) for automatic HTTPS from Let's Encrypt.
+{$CRUCIBLE_SITE_ADDRESS}
+
+encode zstd gzip
+
+redir /api/v3 /api/v3/ permanent
+
+handle_path /api/v3/* {
+	reverse_proxy api:8000
+}
+
+handle {
+	respond "Crucible: the API is at /api/v3/" 404
+}

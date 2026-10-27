@@ -1,0 +1,94 @@
+# Crucible on one machine: PostgreSQL, the API, and Caddy in front.
+# Install guide: README.md in this folder.
+
+name: crucible
+
+x-api: &api
+  build:
+    context: ../..
+  image: crucible-api:local
+  environment: &api-environment
+    DB_SERVER: db:5432
+    DB_USERNAME: crucible
+    DB_DATABASE: crucible
+    API_PUBLIC_URL: ${CRUCIBLE_PUBLIC_URL:-http://localhost:${CRUCIBLE_HTTP_PORT:-8080}}
+    API_PATH: api/v3
+    ALEMBIC_PRODUCTION_DATABASE: ""
+  secrets:
+    - PGDB_PW
+    - CRUCIBLE_SECRET_KEY
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.1-pg17
+    environment:
+      POSTGRES_DB: crucible
+      POSTGRES_PASSWORD_FILE: /run/secrets/POSTGRES_PASSWORD
+    secrets:
+      - POSTGRES_PASSWORD
+      - PGDB_PW
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username", "postgres", "--dbname", "crucible"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    <<: *api
+    command: ["python", "-m", "app.cli", "db", "upgrade"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *api
+    environment:
+      <<: *api-environment
+      PORT: "8000"
+      WEB_CONCURRENCY: ${CRUCIBLE_API_WORKERS:-2}
+      # Only the proxy can reach this service, so its forwarding headers are trusted.
+      FORWARDED_ALLOW_IPS: "*"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2.10.2-alpine
+    environment:
+      CRUCIBLE_SITE_ADDRESS: ${CRUCIBLE_SITE_ADDRESS:-:80}
+    ports:
+      - "${CRUCIBLE_HTTP_PORT:-8080}:80"
+      - "${CRUCIBLE_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+secrets:
+  POSTGRES_PASSWORD:
+    file: ./secrets/POSTGRES_PASSWORD
+  PGDB_PW:
+    file: ./secrets/PGDB_PW
+  CRUCIBLE_SECRET_KEY:
+    file: ./secrets/CRUCIBLE_SECRET_KEY
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:
