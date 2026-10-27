@@ -1,5 +1,5 @@
 # Crucible on one machine: PostgreSQL, the API, and Caddy in front.
-# Install guide: README.md in this folder.
+# Install guide: README.md in this folder. Hub sign-in: compose.hub.yaml.
 
 name: crucible
 
@@ -7,6 +7,8 @@ x-api: &api
   build:
     context: ../..
   image: crucible-api:local
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
   environment: &api-environment
     DB_SERVER: db:5432
     DB_USERNAME: crucible
@@ -21,6 +23,10 @@ x-api: &api
 services:
   db:
     image: pgvector/pgvector:0.8.1-pg17
+    # The entrypoint switches to the postgres user and owns the data folder, so only NET_RAW goes.
+    cap_drop: [NET_RAW]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
     environment:
       POSTGRES_DB: crucible
       POSTGRES_PASSWORD_FILE: /run/secrets/POSTGRES_PASSWORD
@@ -42,6 +48,7 @@ services:
   migrate:
     <<: *api
     command: ["python", "-m", "app.cli", "db", "upgrade"]
+    networks: [backend]
     depends_on:
       db:
         condition: service_healthy
@@ -53,8 +60,9 @@ services:
       <<: *api-environment
       PORT: "8000"
       WEB_CONCURRENCY: ${CRUCIBLE_API_WORKERS:-2}
-      # Only the proxy can reach this service, so its forwarding headers are trusted.
+      # Only the proxy and the Hub can reach this service, so forwarding headers are trusted.
       FORWARDED_ALLOW_IPS: "*"
+    networks: [backend, crucible]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -68,8 +76,13 @@ services:
 
   proxy:
     image: caddy:2.11.7-alpine
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    networks: [crucible]
     environment:
       CRUCIBLE_SITE_ADDRESS: ${CRUCIBLE_SITE_ADDRESS:-:80}
+      CRUCIBLE_HUB_UPSTREAM: ${CRUCIBLE_HUB_UPSTREAM:-}
     ports:
       - "${CRUCIBLE_HTTP_PORT:-8080}:80"
       - "${CRUCIBLE_HTTPS_PORT:-8443}:443"
@@ -90,6 +103,14 @@ secrets:
     file: ./secrets/PGDB_PW
   CRUCIBLE_SECRET_KEY:
     file: ./secrets/CRUCIBLE_SECRET_KEY
+
+networks:
+  # The database and the migration job only; no outside access.
+  backend:
+    internal: true
+  # Shared with the Hub when it runs on this machine (its project joins this network by name).
+  crucible:
+    name: ${CRUCIBLE_NETWORK:-crucible}
 
 volumes:
   db-data:

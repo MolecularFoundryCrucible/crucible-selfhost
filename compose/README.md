@@ -2,7 +2,7 @@
 
 This folder runs Crucible on one machine: PostgreSQL (with pgvector), the Crucible API, and Caddy as the web server in front. It suits a small group: one lab, a few workstations, an administrator who sets it up once.
 
-What works today: the API (projects, samples, datasets and their metadata, users, access control), the Python client nano-crucible, and API keys. Not yet: file storage (Phase 2 adds an S3-compatible store; until then file upload and download routes answer `501 storage_not_configured`), browser sign-in through the Crucible Hub (a later step of this bundle), local passwords (Phase 3), and the optional printing, ingestion, and proposal integrations, which stay off.
+What works today: the API (projects, samples, datasets and their metadata, users, access control), the Python client nano-crucible, API keys, and, optionally, the Crucible Hub web interface with ORCID sign-in (see [Adding the Hub](#adding-the-hub)). Not yet: file storage (Phase 2 adds an S3-compatible store; until then file upload and download routes answer `501 storage_not_configured`), local passwords (Phase 3), and the optional printing, ingestion, and proposal integrations, which stay off.
 
 ## Requirements
 
@@ -93,6 +93,65 @@ CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
 
 then `docker compose up -d --wait`. Certificates are kept in the `caddy-data` volume. Use the bare domain name, without `https://` or a port. With rootless Docker, ports below 1024 need `sudo sysctl net.ipv4.ip_unprivileged_port_start=80`.
 
+## Adding the Hub
+
+The Crucible Hub is the web interface, where people sign in with ORCID. It is optional: without it the API, API keys, and the Python client work as before. The Hub is its own Compose project, from the [crucible-hub repository](https://github.com/MolecularFoundryCrucible/crucible-hub/tree/v1.7.0/deploy/compose) at release `v1.7.0`, with its own small database for sign-in sessions. It runs on this machine or on a second one; this bundle's Caddy serves it at `/hub/` either way, so people use one address.
+
+### What you need
+
+- **HTTPS.** Sign-in sets secure cookies and ORCID calls the server back, so plain HTTP does not work. Choose one:
+  - A public domain name: [HTTPS with a domain name](#https-with-a-domain-name) above.
+  - A name in your lab's DNS that the internet cannot reach: Caddy can still get a Let's Encrypt certificate through a DNS challenge, but needs a Caddy build with your DNS provider's module ([caddy-dns](https://github.com/caddy-dns)); this bundle does not ship one.
+  - A certificate from your institution: mount the files into the `proxy` service and add `tls /certs/cert.pem /certs/key.pem` under the site address in `Caddyfile`.
+  - A trial on one computer: `CRUCIBLE_SITE_ADDRESS=localhost` makes Caddy use its own certificate authority. Browsers warn until you trust its root certificate (`docker compose exec proxy cat /data/caddy/pki/authorities/local/root.crt > caddy-root.crt`, then add it to the system or browser). With the default ports the address is `https://localhost:8443`: use that, port included, wherever this guide writes `https://crucible.mylab.org`. Only for evaluation: every user's machine would need the certificate.
+- **An ORCID application.** Register Public API credentials at [ORCID developer tools](https://orcid.org/developer-tools) (free, needs a verified email). The redirect URI is the API's, not the Hub's: `https://<your address>/api/v3/auth/hub/callback`, including the port when it is not 443. ORCID accepts only HTTPS redirect URIs and matches them exactly. For a trial, use the [ORCID sandbox](https://sandbox.orcid.org) and its separate accounts.
+
+### 1. Turn on Hub sign-in in the API
+
+Create the two secrets (the first is shared with the Hub; the second comes from ORCID):
+
+```bash
+openssl rand -hex 32 > secrets/HUB_AUTH_CLIENT_SECRET
+printf '%s' 'your-orcid-client-secret' > secrets/ORCID_CLIENT_SECRET
+chmod 644 secrets/*
+```
+
+In `.env`:
+
+```bash
+COMPOSE_FILE=compose.yaml:compose.hub.yaml
+# The address people use: no /api/v3, no trailing slash, and the port if it is not 443.
+CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
+ORCID_CLIENT_ID=APP-XXXXXXXXXXXXXXXX
+# For the ORCID sandbox:
+# ORCID_ISSUER=https://sandbox.orcid.org
+```
+
+Then `docker compose up -d --wait`. Until the Hub runs, `/hub/` answers `502`.
+
+### 2a. The Hub on this machine
+
+```bash
+git clone --branch v1.7.0 https://github.com/MolecularFoundryCrucible/crucible-hub.git
+cd crucible-hub/deploy/compose
+```
+
+Follow its `README.md`: copy this bundle's `secrets/HUB_AUTH_CLIENT_SECRET` to its `secrets/hub_auth_client_secret`, create its other secrets, copy `example.env` to `.env`, and set `HUB_PUBLIC_ORIGIN=https://crucible.mylab.org` and `HUB_AUTH_PUBLIC_API_URL=https://crucible.mylab.org/api/v3`. The defaults there join this bundle's `crucible` network and call the API at `http://api:8000`. Start it with `docker compose up -d --build --wait`, after this bundle, which creates the network. `https://crucible.mylab.org/hub/health` then answers `{"status":"ok","sessions":"ok"}`.
+
+### 2b. The Hub on a second machine
+
+On the second machine, clone the same release and create the Hub's secrets as in 2a (copying `HUB_AUTH_CLIENT_SECRET` from this machine). In its `.env`, comment out the same-machine block and use the separate-machine one: `COMPOSE_FILE=compose.yaml:compose.published.yaml`, `HUB_BIND_ADDRESS` set to the address this machine reaches it on, and `CRUCIBLE_API_BASE_URL=https://crucible.mylab.org/api/v3`; set `HUB_PUBLIC_ORIGIN` and `HUB_AUTH_PUBLIC_API_URL` as in 2a. Start it with `docker compose up -d --build --wait`. Then, in this bundle's `.env`, set `CRUCIBLE_HUB_UPSTREAM=<that address>:3000` (an address and port, without `http://`) and run `docker compose up -d --wait`.
+
+Caddy talks to the Hub in plain HTTP, and that link carries sign-in cookies, so it must be encrypted: put both machines on a WireGuard or Tailscale network and use the Hub's address there, and let only this machine reach the Hub's port. A shared LAN alone is not enough.
+
+### Traffic inside the installation
+
+HTTPS ends at Caddy; behind it, Caddy, the API, and the Hub talk plain HTTP, and those connections carry API keys, sign-in tokens and cookies, and, when the Hub exchanges a sign-in, the shared client secret. On one machine this is the usual setup and is safe as configured here: the database is on an internal network that only the API joins (the Hub cannot reach it), every container drops the Linux capabilities that would let it intercept its neighbours' traffic and cannot gain new privileges, and nothing else should be attached to the `crucible` network. It is not "zero trust", where every connection is encrypted and authenticated (NIST SP 800-207). Any connection that leaves the machine needs encryption: the Hub refuses plain HTTP to the API except to a container name or a private address, and the link to a Hub on a second machine must be an encrypted private network as above. Labs that want encryption inside the machine too can have Caddy issue internal certificates (`tls internal`) for an extra HTTPS address in front of the API, have the Hub call that address, and give the Hub Caddy's root certificate through `NODE_EXTRA_CA_CERTS`; this needs no code change but is not set up here.
+
+### Removing the Hub
+
+Stop the Hub project (`docker compose down` in its folder; add `-v` to delete its session database), remove `COMPOSE_FILE` (and `CRUCIBLE_HUB_UPSTREAM`, if you set it) from this bundle's `.env`, and run `docker compose up -d --wait`. The API's data is untouched; `/hub/` answers `404`.
+
 ## Backups
 
 Back up the database and the `secrets/` folder. A database backup contains every user's API key, so treat it like the secrets: keep it in a private folder outside the repository.
@@ -126,7 +185,7 @@ The `migrate` step applies any database changes before the new API starts. If on
 
 ## Stopping and removing
 
-`docker compose down` stops everything and keeps the data. `docker compose down -v` also deletes the database and certificates; there is no undo.
+`docker compose down` stops everything and keeps the data. With the Hub on this machine, stop the Hub project first: the shared `crucible` network cannot be removed while it is attached. `docker compose down -v` also deletes the database and certificates; there is no undo.
 
 ## Using a different way to provide secrets
 
@@ -143,6 +202,7 @@ Caddy can be replaced by any reverse proxy. The rules:
 - `/api/v3/` goes to the API (`api:8000` inside Compose, or the API container's port) with the `/api/v3` prefix removed; the API serves its documentation under that prefix (`API_PATH=api/v3`).
 - Pass `Host`, `X-Forwarded-For` (set to the client address, not appended to what the client sent), and `X-Forwarded-Proto`. The API trusts forwarding headers from any address (`FORWARDED_ALLOW_IPS="*"`), so it must not be reachable except through the proxy.
 - Allow request bodies of a few megabytes and read timeouts of at least 60 seconds for large metadata requests.
+- With the Hub: `/hub/` goes to the Hub (`hub:3000`) with the prefix kept. `X-Forwarded-For` must again be set, not appended: the Hub limits sign-in attempts per client address and trusts one proxy (`HUB_TRUSTED_PROXY_HOPS=1`). Caddy also caps `/api/v3/auth/hub/` requests at 8 KB and waits at most 20 seconds for the API there.
 
 An nginx example, for nginx running as a service in the same compose project (remove the `proxy` service and publish nginx instead):
 
@@ -163,10 +223,21 @@ server {
         proxy_set_header X-Forwarded-Host $host;
         proxy_read_timeout 60s;
     }
+
+    # Only with the Hub.
+    location /hub/ {
+        proxy_pass http://hub:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 }
 ```
 
 ## Troubleshooting
+
+- `/hub/` answers `502`: the Hub is not running, or `CRUCIBLE_HUB_UPSTREAM` does not point at it. On one machine, check `docker compose ps` in the Hub's folder; it must have joined the `crucible` network.
+- `network crucible declared as external, but could not be found` when starting the Hub: start this bundle first; it creates the network.
 
 - `docker compose ps -a` shows each service; `docker compose logs api migrate db` shows what happened.
 - `bind source path does not exist: .../secrets/<NAME>`: a secret file is missing; create it as in step 1.
