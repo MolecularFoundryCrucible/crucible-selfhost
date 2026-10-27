@@ -29,9 +29,11 @@ services:
       - PGDB_PW
     volumes:
       - db-data:/var/lib/postgresql/data
-      - ./db-init:/docker-entrypoint-initdb.d:ro
+      - ./db-init:/docker-entrypoint-initdb.d:ro,z
     healthcheck:
-      test: ["CMD", "pg_isready", "--username", "postgres", "--dbname", "crucible"]
+      # Over TCP, so the temporary server PostgreSQL runs during its first initialization does not
+      # count, and only once the init script has created the application role.
+      test: ["CMD-SHELL", "pg_isready --host 127.0.0.1 --username postgres --dbname crucible && psql --username postgres --dbname crucible --tuples-only --no-align --command \"select 1 from pg_roles where rolname = 'crucible'\" | grep -q 1"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -65,14 +67,15 @@ services:
     restart: unless-stopped
 
   proxy:
-    image: caddy:2.10.2-alpine
+    image: caddy:2.11.7-alpine
     environment:
       CRUCIBLE_SITE_ADDRESS: ${CRUCIBLE_SITE_ADDRESS:-:80}
     ports:
       - "${CRUCIBLE_HTTP_PORT:-8080}:80"
       - "${CRUCIBLE_HTTPS_PORT:-8443}:443"
+      - "${CRUCIBLE_HTTPS_PORT:-8443}:443/udp"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro,z
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

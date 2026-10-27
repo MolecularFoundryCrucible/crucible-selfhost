@@ -25,7 +25,7 @@ chmod 644 secrets/*
 
 | File | Used for |
 |---|---|
-| `POSTGRES_PASSWORD` | the PostgreSQL administrator; used only to create the database the first time |
+| `POSTGRES_PASSWORD` | the PostgreSQL administrator: creates the database the first time, and is used for backups and the database health check; the API never uses it |
 | `PGDB_PW` | the ordinary `crucible` database account the API uses |
 | `CRUCIBLE_SECRET_KEY` | signing browser sessions and list cursors; changing it signs everyone out |
 
@@ -91,35 +91,38 @@ CRUCIBLE_HTTPS_PORT=443
 CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
 ```
 
-then `docker compose up -d --wait`. Certificates are kept in the `caddy-data` volume.
+then `docker compose up -d --wait`. Certificates are kept in the `caddy-data` volume. Use the bare domain name, without `https://` or a port. With rootless Docker, ports below 1024 need `sudo sysctl net.ipv4.ip_unprivileged_port_start=80`.
 
 ## Backups
 
-Back up the database and the `secrets/` folder. The database:
+Back up the database and the `secrets/` folder. A database backup contains every user's API key, so treat it like the secrets: keep it in a private folder outside the repository.
 
 ```bash
-docker compose exec -T db pg_dump --username postgres --dbname crucible --format custom > crucible-$(date +%F).dump
+mkdir -p ~/crucible-backups && chmod 700 ~/crucible-backups
+(umask 077; docker compose exec -T db pg_dump --username postgres --dbname crucible --format custom > ~/crucible-backups/crucible-$(date +%F).dump)
 ```
 
 To restore into a running installation (this replaces its data):
 
 ```bash
 docker compose stop api
-docker compose exec -T db pg_restore --username postgres --dbname crucible --clean --if-exists < crucible-2026-10-26.dump
-docker compose start api
+docker compose exec -T db pg_restore --username postgres --dbname crucible --clean --if-exists < ~/crucible-backups/crucible-2026-10-26.dump
+docker compose up -d --wait
 ```
 
-To move to a new machine, copy the repository, `.env`, `secrets/`, and the dump; start once (step 3), then restore.
+`up` runs the `migrate` step again, which brings a backup from an older version up to date before the API starts. A backup from a newer version than the code cannot be restored; upgrade the code first.
+
+To move to a new machine, copy the repository, `.env`, `secrets/`, and the backup; start once (step 3), then restore.
 
 ## Upgrading
 
 ```bash
-docker compose exec -T db pg_dump --username postgres --dbname crucible --format custom > before-upgrade.dump
+(umask 077; docker compose exec -T db pg_dump --username postgres --dbname crucible --format custom > ~/crucible-backups/before-upgrade.dump)
 git pull
 docker compose up -d --build --wait
 ```
 
-The `migrate` service applies any database changes before the new API starts; if it fails, the old data is untouched and the API does not start (`docker compose logs migrate`).
+The `migrate` step applies any database changes before the new API starts. If one fails, the database stays at the last change that completed, the API does not start, and `docker compose logs migrate` says why; fix the cause and run the same command again, or restore the backup.
 
 ## Stopping and removing
 
@@ -138,10 +141,10 @@ Crucible reads each secret from exactly one of: a file named after it in the sec
 Caddy can be replaced by any reverse proxy. The rules:
 
 - `/api/v3/` goes to the API (`api:8000` inside Compose, or the API container's port) with the `/api/v3` prefix removed; the API serves its documentation under that prefix (`API_PATH=api/v3`).
-- Pass `Host`, `X-Forwarded-For`, and `X-Forwarded-Proto`. The API trusts forwarding headers from any address (`FORWARDED_ALLOW_IPS="*"`), so it must not be reachable except through the proxy.
+- Pass `Host`, `X-Forwarded-For` (set to the client address, not appended to what the client sent), and `X-Forwarded-Proto`. The API trusts forwarding headers from any address (`FORWARDED_ALLOW_IPS="*"`), so it must not be reachable except through the proxy.
 - Allow request bodies of a few megabytes and read timeouts of at least 60 seconds for large metadata requests.
 
-An nginx example (remove the `proxy` service and publish nginx instead):
+An nginx example, for nginx running as a service in the same compose project (remove the `proxy` service and publish nginx instead):
 
 ```nginx
 server {
@@ -155,7 +158,7 @@ server {
         proxy_pass http://api:8000/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Host $host;
         proxy_read_timeout 60s;
@@ -168,5 +171,6 @@ server {
 - `docker compose ps -a` shows each service; `docker compose logs api migrate db` shows what happened.
 - `bind source path does not exist: .../secrets/<NAME>`: a secret file is missing; create it as in step 1.
 - `Missing required settings: ...` or `... is given more than one way ...`: the API names the setting; fix `.env` or `secrets/` and run `docker compose up -d --wait` again.
-- The database refuses the password after you changed `secrets/PGDB_PW`: the password is set only when the database is first created. Change it inside the database too (`docker compose exec db psql -U postgres -c "ALTER ROLE crucible PASSWORD '...'"`), or start over with `docker compose down -v`.
-- `crucible: /run/secrets/PGDB_PW is missing, empty, or not readable` in the `db` logs, and `migrate` failing: the files in `secrets/` must exist and be readable (`chmod 644 secrets/*`). The database's first start was interrupted, so start over: `docker compose down -v`, then `docker compose up -d --build --wait`.
+- The database refuses the password after you changed `secrets/PGDB_PW`: the password is set only when the database is first created. Set the same password inside the database (`docker compose exec db psql -U postgres -c '\password crucible'`, which asks for it without showing it), then `docker compose up -d --force-recreate --wait` so every service reads the new file.
+- On Fedora, RHEL, Rocky, or AlmaLinux with SELinux enforcing, `permission denied` reading `/run/secrets/...`: label the folder for containers with `chcon -Rt container_file_t secrets`.
+- `crucible: /run/secrets/PGDB_PW is missing, empty, or not readable` in the `db` logs, and `db` never becoming healthy: the files in `secrets/` must exist and be readable (`chmod 644 secrets/*`). The database's first start was interrupted, so start over: `docker compose down -v`, then `docker compose up -d --build --wait`.
