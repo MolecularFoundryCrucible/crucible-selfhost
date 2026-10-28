@@ -95,7 +95,7 @@ then `docker compose up -d --wait`. Certificates are kept in the `caddy-data` vo
 
 ## Adding the Hub
 
-The Crucible Hub is the web interface, where people sign in with ORCID. It is optional: without it the API, API keys, and the Python client work as before. The Hub is its own Compose project, from the [crucible-hub repository](https://github.com/MolecularFoundryCrucible/crucible-hub/tree/v1.7.0/deploy/compose) at release `v1.7.0`, with its own small database for sign-in sessions. It runs on this machine or on a second one; this bundle's Caddy serves it at `/hub/` either way, so people use one address.
+The Crucible Hub is the web interface, where people sign in with ORCID. It is optional: without it the API, API keys, and the Python client work as before. The Hub is its own Compose project, from the [crucible-hub repository](https://github.com/MolecularFoundryCrucible/crucible-hub/tree/v1.7.1/deploy/compose) at release `v1.7.1`, with its own small database for sign-in sessions. The Hub publishes a ready-made image, `ghcr.io/molecularfoundrycrucible/crucible-hub:1.7.1` (amd64 and arm64), so nothing needs to be built; its `gov.lbl.crucible.api.min-version` label names the oldest Crucible API it works with (3.2.0). It runs on this machine or on a second one; this bundle's Caddy serves it at `/hub/` either way, so people use one address.
 
 ### What you need
 
@@ -132,15 +132,15 @@ Then `docker compose up -d --wait`. Until the Hub runs, `/hub/` answers `502`.
 ### 2a. The Hub on this machine
 
 ```bash
-git clone --branch v1.7.0 https://github.com/MolecularFoundryCrucible/crucible-hub.git
+git clone --branch v1.7.1 https://github.com/MolecularFoundryCrucible/crucible-hub.git
 cd crucible-hub/deploy/compose
 ```
 
-Follow its `README.md`: copy this bundle's `secrets/HUB_AUTH_CLIENT_SECRET` to its `secrets/hub_auth_client_secret`, create its other secrets, copy `example.env` to `.env`, and set `HUB_PUBLIC_ORIGIN=https://crucible.mylab.org` and `HUB_AUTH_PUBLIC_API_URL=https://crucible.mylab.org/api/v3`. The defaults there join this bundle's `crucible` network and call the API at `http://api:8000`. Start it with `docker compose up -d --build --wait`, after this bundle, which creates the network. `https://crucible.mylab.org/hub/health` then answers `{"status":"ok","sessions":"ok"}`.
+Follow its `README.md`: copy this bundle's `secrets/HUB_AUTH_CLIENT_SECRET` to its `secrets/hub_auth_client_secret`, create its other secrets, copy `example.env` to `.env`, and set `HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.7.1`, `HUB_PUBLIC_ORIGIN=https://crucible.mylab.org`, and `HUB_AUTH_PUBLIC_API_URL=https://crucible.mylab.org/api/v3`. The defaults there join this bundle's `crucible` network and call the API at `http://api:8000`. Start it after this bundle, which creates the network, with `docker compose pull hub hub-setup` and then `docker compose up -d --wait`. `https://crucible.mylab.org/hub/health` then answers `{"status":"ok","sessions":"ok"}`.
 
 ### 2b. The Hub on a second machine
 
-On the second machine, clone the same release and create the Hub's secrets as in 2a (copying `HUB_AUTH_CLIENT_SECRET` from this machine). In its `.env`, comment out the same-machine block and use the separate-machine one: `COMPOSE_FILE=compose.yaml:compose.published.yaml`, `HUB_BIND_ADDRESS` set to the address this machine reaches it on, and `CRUCIBLE_API_BASE_URL=https://crucible.mylab.org/api/v3`; set `HUB_PUBLIC_ORIGIN` and `HUB_AUTH_PUBLIC_API_URL` as in 2a. Start it with `docker compose up -d --build --wait`. Then, in this bundle's `.env`, set `CRUCIBLE_HUB_UPSTREAM=<that address>:3000` (an address and port, without `http://`) and run `docker compose up -d --wait`.
+On the second machine, clone the same release and create the Hub's secrets as in 2a (copying `HUB_AUTH_CLIENT_SECRET` from this machine). In its `.env`, comment out the same-machine block and use the separate-machine one: `COMPOSE_FILE=compose.yaml:compose.published.yaml`, `HUB_BIND_ADDRESS` set to the address this machine reaches it on, and `CRUCIBLE_API_BASE_URL=https://crucible.mylab.org/api/v3`; set `HUB_IMAGE`, `HUB_PUBLIC_ORIGIN`, and `HUB_AUTH_PUBLIC_API_URL` as in 2a. Start it with `docker compose pull hub hub-setup` and `docker compose up -d --wait`. Then, in this bundle's `.env`, set `CRUCIBLE_HUB_UPSTREAM=<that address>:3000` (an address and port, without `http://`) and run `docker compose up -d --wait`.
 
 Caddy talks to the Hub in plain HTTP, and that link carries sign-in cookies, so it must be encrypted: put both machines on a WireGuard or Tailscale network and use the Hub's address there, and let only this machine reach the Hub's port. A shared LAN alone is not enough.
 
