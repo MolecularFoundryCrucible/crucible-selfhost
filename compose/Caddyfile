@@ -2,7 +2,9 @@
 # (for example crucible.mylab.org) for automatic HTTPS from Let's Encrypt.
 {$CRUCIBLE_SITE_ADDRESS}
 
-encode zstd gzip
+# Stored files pass through byte for byte, with their length, so downloads can resume.
+@compressible not path /{$CRUCIBLE_UPLOAD_BUCKET:crucible-files}/*
+encode @compressible zstd gzip
 
 redir /api/v3 /api/v3/ permanent
 redir /hub /hub/ permanent
@@ -22,6 +24,21 @@ handle /api/v3/auth/hub/* {
 
 handle_path /api/v3/* {
 	reverse_proxy api:8000
+}
+
+# The bundled store, for the signed upload and download URLs the API hands out. The store checks
+# each URL's signature, so the path and Host reach it unchanged. Clients may send their API key or
+# cookies along; neither goes to the store. A downloaded file never runs as a page of this site
+# (web.dev, "Securely hosting user data"); current Chrome and Firefox still show PDFs and images.
+handle /{$CRUCIBLE_UPLOAD_BUCKET:crucible-files}/* {
+	request_header -Authorization
+	request_header -Cookie
+	header {
+		Content-Security-Policy "sandbox; default-src 'none'"
+		X-Content-Type-Options nosniff
+		Cross-Origin-Resource-Policy same-site
+	}
+	reverse_proxy seaweedfs:8333
 }
 
 # The Hub keeps its /hub prefix. CRUCIBLE_HUB_UPSTREAM is read per request, so an empty value

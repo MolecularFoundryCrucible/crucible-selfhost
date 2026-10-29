@@ -1,4 +1,4 @@
-# Crucible on one machine: PostgreSQL, the API, and Caddy in front.
+# Crucible on one machine: PostgreSQL, the API, SeaweedFS for files, and Caddy in front.
 # Install guide: README.md in this folder. Hub sign-in: compose.hub.yaml.
 
 name: crucible
@@ -63,10 +63,27 @@ services:
       WEB_CONCURRENCY: ${CRUCIBLE_API_WORKERS:-2}
       # Only the proxy and the Hub can reach this service, so forwarding headers are trusted.
       FORWARDED_ALLOW_IPS: "*"
-    networks: [backend, crucible]
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT_URL: ${CRUCIBLE_S3_ENDPOINT_URL:-http://seaweedfs:8333}
+      # Signed upload and download URLs carry this address, so clients must reach it.
+      S3_PUBLIC_URL: ${CRUCIBLE_S3_PUBLIC_URL:-${CRUCIBLE_PUBLIC_URL:-http://localhost:${CRUCIBLE_HTTP_PORT:-8080}}}
+      S3_REGION: ${CRUCIBLE_S3_REGION:-us-east-1}
+      UPLOAD_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}
+      RECORD_BUCKET: ${CRUCIBLE_RECORD_BUCKET:-crucible-records}
+      MULTIPART_UPLOAD_ENABLED: "true"
+      MULTIPART_UPLOAD_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}
+    secrets:
+      - PGDB_PW
+      - CRUCIBLE_SECRET_KEY
+      - S3_ACCESS_KEY_ID
+      - S3_SECRET_ACCESS_KEY
+    networks: [backend, crucible, storage]
     depends_on:
       migrate:
         condition: service_completed_successfully
+      seaweedfs:
+        condition: service_healthy
+        required: false
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)"]
       interval: 10s
@@ -75,15 +92,78 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # File storage. Leave the bundled-storage profile out of COMPOSE_PROFILES to use another
+  # S3-compatible store instead (README.md, "File storage").
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.51
+    profiles: [bundled-storage]
+    # The image's seaweed user, which owns /data in the image and so in a new volume.
+    user: "1000:1000"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [storage]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - export AWS_ACCESS_KEY_ID="$$(cat /run/secrets/S3_ACCESS_KEY_ID)" AWS_SECRET_ACCESS_KEY="$$(cat /run/secrets/S3_SECRET_ACCESS_KEY)" && exec /entrypoint.sh mini -dir=/data
+    environment:
+      S3_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files},${CRUCIBLE_RECORD_BUCKET:-crucible-records}
+    secrets:
+      - S3_ACCESS_KEY_ID
+      - S3_SECRET_ACCESS_KEY
+    volumes:
+      # A Docker volume unless CRUCIBLE_FILES_DIR names a folder owned by uid 1000.
+      - ${CRUCIBLE_FILES_DIR:-seaweedfs-data}:/data
+    healthcheck:
+      # Healthy once the S3 port answers and the buckets exist (the filer, port 8888, lists them).
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/healthz && for bucket in $$(echo \"$$S3_BUCKET\" | tr , ' '); do wget -q -O /dev/null http://127.0.0.1:8888/buckets/$$bucket/ || exit 1; done"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  # One-off: `docker compose run --rm files-backup backup` copies every bucket to the backup folder,
+  # `restore` copies it back (README.md, "Backups"). Works with the bundled store or your own.
+  files-backup:
+    image: rclone/rclone:1.75.2
+    profiles: [backup]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # storage reaches the bundled store; crucible reaches a store outside the machine.
+    networks: [storage, crucible]
+    entrypoint: ["/bin/sh", "/files-backup.sh"]
+    command: ["backup"]
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+        required: false
+    environment:
+      RCLONE_CONFIG: /dev/null
+      RCLONE_CONFIG_STORE_TYPE: s3
+      RCLONE_CONFIG_STORE_PROVIDER: Other
+      RCLONE_CONFIG_STORE_ENDPOINT: ${CRUCIBLE_S3_ENDPOINT_URL:-http://seaweedfs:8333}
+      RCLONE_CONFIG_STORE_REGION: ${CRUCIBLE_S3_REGION:-us-east-1}
+      RCLONE_CONFIG_STORE_FORCE_PATH_STYLE: "true"
+      BUCKETS: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files} ${CRUCIBLE_RECORD_BUCKET:-crucible-records}
+    secrets:
+      - S3_ACCESS_KEY_ID
+      - S3_SECRET_ACCESS_KEY
+    volumes:
+      - ./files-backup.sh:/files-backup.sh:ro,z
+      - ${CRUCIBLE_BACKUP_DIR:-${HOME}/crucible-backups}/files:/backup
+    restart: "no"
+
   proxy:
     image: caddy:2.11.7-alpine
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
-    networks: [crucible]
+    networks: [crucible, storage]
     environment:
       CRUCIBLE_SITE_ADDRESS: ${CRUCIBLE_SITE_ADDRESS:-:80}
       CRUCIBLE_HUB_UPSTREAM: ${CRUCIBLE_HUB_UPSTREAM:-}
+      CRUCIBLE_UPLOAD_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}
     ports:
       - "${CRUCIBLE_HTTP_PORT:-8080}:80"
       - "${CRUCIBLE_HTTPS_PORT:-8443}:443"
@@ -104,6 +184,10 @@ secrets:
     file: ./secrets/PGDB_PW
   CRUCIBLE_SECRET_KEY:
     file: ./secrets/CRUCIBLE_SECRET_KEY
+  S3_ACCESS_KEY_ID:
+    file: ./secrets/S3_ACCESS_KEY_ID
+  S3_SECRET_ACCESS_KEY:
+    file: ./secrets/S3_SECRET_ACCESS_KEY
 
 networks:
   # The database and the migration job only; no outside access.
@@ -112,8 +196,12 @@ networks:
   # Shared with the Hub when it runs on this machine (its project joins this network by name).
   crucible:
     name: ${CRUCIBLE_NETWORK:-crucible}
+  # The bundled store, reached by the API and the proxy only.
+  storage:
+    internal: true
 
 volumes:
   db-data:
+  seaweedfs-data:
   caddy-data:
   caddy-config:
