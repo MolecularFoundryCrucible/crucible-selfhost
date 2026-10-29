@@ -4,8 +4,6 @@
 name: crucible
 
 x-api: &api
-  build:
-    context: ../..
   image: crucible-api:local
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
@@ -47,6 +45,7 @@ services:
 
   migrate:
     <<: *api
+    pull_policy: never
     command: ["python", "-m", "app.cli", "db", "upgrade"]
     networks: [backend]
     depends_on:
@@ -56,6 +55,8 @@ services:
 
   api:
     <<: *api
+    build:
+      context: ../..
     environment:
       <<: *api-environment
       PORT: "8000"
