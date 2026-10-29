@@ -128,7 +128,17 @@ docker compose up -d --wait
 
 Once uploads and downloads work, `docker volume rm crucible_seaweedfs-data` frees the old copy.
 
-Not yet done: when a file is replaced, its previous version stays in the bucket, and deleting a file or a dataset removes only the database records, not the stored bytes. A cleanup job comes in a later version; the space they take is reclaimed then.
+### Replaced files, restoring, and cleanup
+
+When a file is replaced, its previous content is kept for 14 days (`CRUCIBLE_FILE_VERSION_RETENTION_DAYS` in `.env`), so a replace can be undone:
+
+```bash
+docker compose exec api python -m app.cli files restore <file MFID>
+```
+
+This makes the newest kept version current again and keeps the content it replaces, so running it again undoes the restore. The `storage-cleanup` service runs `python -m app.cli storage cleanup` every hour: it deletes kept versions older than the grace period that no file uses, and aborts uploads that were started and abandoned. It is off by default for now: set `CRUCIBLE_STORAGE_CLEANUP_ENABLED=true` in `.env` and run `docker compose up -d --wait` to turn it on. Until then, old versions and abandoned uploads stay in the bucket. `docker compose exec api python -m app.cli storage cleanup --dry-run` shows what it would do, also while it is off. Keep the grace period at least as long as the oldest database backup you might restore, so the files such a backup points at still exist.
+
+SeaweedFS frees the disk space of deleted files later, when its background compaction runs (once about 30% of a storage unit is deleted data), and compaction itself needs some free space: keep a margin on the disk and watch it. Deleting a file or a dataset still removes only the database records, not the stored bytes; that comes in a later version.
 
 ### Using another S3-compatible store
 
@@ -218,10 +228,10 @@ docker compose run --rm --user "$(id -u):$(id -g)" files-backup
 
 `files-backup` (rclone) copies both buckets through the S3 interface into `~/crucible-backups/files/` (or `CRUCIBLE_BACKUP_DIR/files/`; create that `files` folder yourself first, or Docker creates it owned by root and the copy cannot write to it), with the store running, so uploads continue. Each run copies only files not yet in the backup, and never deletes from it. Stored files are never changed in place, so this incremental copy is all a backup needs. The copy is plain files: `crucible-files/<dataset>/_files/<upload id>` for uploads (their names are in the database) and `crucible-records/<id>/record.json` for the metadata copies. Back the folder up further with your usual tools (restic, rsync, a tape robot). With rootless Docker, leave out `--user`. The same command backs up your own S3 store when you use one instead of SeaweedFS.
 
-To restore into a running installation (this replaces its database, and adds the backed-up files to the store):
+To restore into a running installation (this replaces its database, and adds the backed-up files to the store). Stop `storage-cleanup` as well as `api`: while the database is half restored, the cleanup could take files as unused and delete them.
 
 ```bash
-docker compose stop api
+docker compose stop api storage-cleanup
 docker compose exec -T db pg_restore --username postgres --dbname crucible --clean --if-exists < ~/crucible-backups/crucible-2026-10-26.dump
 docker compose run --rm --user "$(id -u):$(id -g)" files-backup restore
 docker compose up -d --wait
