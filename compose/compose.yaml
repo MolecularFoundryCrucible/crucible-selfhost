@@ -18,6 +18,19 @@ x-api: &api
     - PGDB_PW
     - CRUCIBLE_SECRET_KEY
 
+# Storage settings shared by the API and the cleanup job.
+x-storage-environment: &storage-environment
+  STORAGE_BACKEND: s3
+  S3_ENDPOINT_URL: ${CRUCIBLE_S3_ENDPOINT_URL:-http://seaweedfs:8333}
+  # Signed upload and download URLs carry this address, so clients must reach it.
+  S3_PUBLIC_URL: ${CRUCIBLE_S3_PUBLIC_URL:-${CRUCIBLE_PUBLIC_URL:-http://localhost:${CRUCIBLE_HTTP_PORT:-8080}}}
+  S3_REGION: ${CRUCIBLE_S3_REGION:-us-east-1}
+  UPLOAD_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}
+  RECORD_BUCKET: ${CRUCIBLE_RECORD_BUCKET:-crucible-records}
+  MULTIPART_UPLOAD_ENABLED: "true"
+  MULTIPART_UPLOAD_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}
+  FILE_VERSION_RETENTION_DAYS: ${CRUCIBLE_FILE_VERSION_RETENTION_DAYS:-14}
+
 services:
   db:
     image: pgvector/pgvector:0.8.1-pg17
@@ -58,20 +71,11 @@ services:
     build:
       context: ../..
     environment:
-      <<: *api-environment
+      <<: [*api-environment, *storage-environment]
       PORT: "8000"
       WEB_CONCURRENCY: ${CRUCIBLE_API_WORKERS:-2}
       # Only the proxy and the Hub can reach this service, so forwarding headers are trusted.
       FORWARDED_ALLOW_IPS: "*"
-      STORAGE_BACKEND: s3
-      S3_ENDPOINT_URL: ${CRUCIBLE_S3_ENDPOINT_URL:-http://seaweedfs:8333}
-      # Signed upload and download URLs carry this address, so clients must reach it.
-      S3_PUBLIC_URL: ${CRUCIBLE_S3_PUBLIC_URL:-${CRUCIBLE_PUBLIC_URL:-http://localhost:${CRUCIBLE_HTTP_PORT:-8080}}}
-      S3_REGION: ${CRUCIBLE_S3_REGION:-us-east-1}
-      UPLOAD_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}
-      RECORD_BUCKET: ${CRUCIBLE_RECORD_BUCKET:-crucible-records}
-      MULTIPART_UPLOAD_ENABLED: "true"
-      MULTIPART_UPLOAD_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}
     secrets:
       - PGDB_PW
       - CRUCIBLE_SECRET_KEY
@@ -90,6 +94,28 @@ services:
       timeout: 10s
       retries: 12
       start_period: 10s
+    restart: unless-stopped
+
+  # Hourly: aborts expired uploads and deletes replaced file content past its grace period.
+  storage-cleanup:
+    <<: *api
+    pull_policy: never
+    command: ["/bin/sh", "-c", "trap 'exit 0' TERM; while true; do python -m app.cli storage cleanup; sleep 3600 & wait $$!; done"]
+    environment:
+      <<: [*api-environment, *storage-environment]
+    secrets:
+      - PGDB_PW
+      - CRUCIBLE_SECRET_KEY
+      - S3_ACCESS_KEY_ID
+      - S3_SECRET_ACCESS_KEY
+    # crucible reaches a store outside the machine.
+    networks: [backend, storage, crucible]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      seaweedfs:
+        condition: service_healthy
+        required: false
     restart: unless-stopped
 
   # File storage. Leave the bundled-storage profile out of COMPOSE_PROFILES to use another
