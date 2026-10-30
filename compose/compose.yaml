@@ -34,7 +34,7 @@ x-storage-environment: &storage-environment
 
 services:
   db:
-    image: pgvector/pgvector:0.8.1-pg17
+    image: pgvector/pgvector:0.8.7-pg17
     # The entrypoint switches to the postgres user and owns the data folder, so only NET_RAW goes.
     cap_drop: [NET_RAW]
     security_opt: [no-new-privileges:true]
