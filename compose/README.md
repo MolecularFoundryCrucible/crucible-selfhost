@@ -157,6 +157,44 @@ then `docker compose up -d --wait` and `docker compose exec api python -m app.cl
 
 If the store cannot be served under a path of this site, run it under its own name (for example `files.mylab.org`, with its own certificate) and set `CRUCIBLE_S3_PUBLIC_URL` to that address.
 
+### Using a Google Cloud Storage bucket
+
+Clients see no difference. Use `CRUCIBLE_STORAGE_BACKEND=gcs`, not Google's S3 interface, which refuses the checksums S3 uploads send. In the Google Cloud project:
+
+1. Create a files bucket and a records bucket (uniform bucket-level access, public access prevention). On the files bucket, add lifecycle rules that delete replaced content after 14 days and abandoned uploads after one: `{"rule": [{"action": {"type": "Delete"}, "condition": {"daysSinceCustomTime": 14}}, {"action": {"type": "AbortIncompleteMultipartUpload"}, "condition": {"age": 1}}]}`. `files restore` and the version cleanup apply to S3 stores only.
+2. Create a service account with Storage Object Admin on both buckets and Service Account Token Creator on itself, so it can sign URLs without a key.
+3. If the Hub uploads from browsers, add a CORS rule on the files bucket for the Hub's address: `PUT` and `GET`, headers `content-type` and `x-goog-hash`, exposing `ETag`.
+
+Give the server that identity, using the first option that applies:
+
+- On Google Cloud (a VM, Cloud Run, GKE): attach the service account; no key. With GKE Workload Identity Federation for the Kubernetes account itself, also set `MULTIPART_UPLOAD_SIGNER` to the service account's email and grant the Kubernetes identity Token Creator on it.
+- Elsewhere, such as this bundle on a lab server: Workload Identity Federation if your identity provider supports it. Otherwise a key, where your organization allows keys: save it as `secrets/google-credentials.json` and add `compose.override.yaml` next to `compose.yaml`:
+
+```yaml
+x-google: &google
+  environment:
+    GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/google-credentials.json
+  secrets: [google-credentials.json]
+
+services:
+  api: *google
+  storage-cleanup: *google
+
+secrets:
+  google-credentials.json:
+    file: ./secrets/google-credentials.json
+```
+
+In `.env`, remove `COMPOSE_PROFILES=bundled-storage` and set:
+
+```bash
+CRUCIBLE_STORAGE_BACKEND=gcs
+CRUCIBLE_UPLOAD_BUCKET=mylab-crucible-files
+CRUCIBLE_RECORD_BUCKET=mylab-crucible-records
+```
+
+then run `docker compose up -d --wait` and `docker compose exec api python -m app.cli storage check`. `files-backup` copies S3 stores only; protect a Google bucket with Google's tools (object versioning, soft delete, or a copy to another bucket).
+
 ## Adding the Hub
 
 The Crucible Hub is the web interface, where people sign in with ORCID. It is optional: without it the API, API keys, and the Python client work as before. The Hub is its own Compose project, from the [crucible-hub repository](https://github.com/MolecularFoundryCrucible/crucible-hub/tree/v1.7.1/deploy/compose) at release `v1.7.1`, with its own small database for sign-in sessions. The Hub publishes a ready-made image, `ghcr.io/molecularfoundrycrucible/crucible-hub:1.7.1` (amd64 and arm64), so nothing needs to be built; its `gov.lbl.crucible.api.min-version` label names the oldest Crucible API it works with (3.2.0). It runs on this machine or on a second one; this bundle's Caddy serves it at `/hub/` either way, so people use one address.
