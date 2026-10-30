@@ -20,7 +20,7 @@ x-api: &api
 
 # Storage settings shared by the API and the cleanup job.
 x-storage-environment: &storage-environment
-  STORAGE_BACKEND: s3
+  STORAGE_BACKEND: ${CRUCIBLE_STORAGE_BACKEND:-s3}
   S3_ENDPOINT_URL: ${CRUCIBLE_S3_ENDPOINT_URL:-http://seaweedfs:8333}
   # Signed upload and download URLs carry this address, so clients must reach it.
   S3_PUBLIC_URL: ${CRUCIBLE_S3_PUBLIC_URL:-${CRUCIBLE_PUBLIC_URL:-http://localhost:${CRUCIBLE_HTTP_PORT:-8080}}}
