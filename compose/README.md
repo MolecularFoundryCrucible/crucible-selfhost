@@ -167,7 +167,7 @@ Clients see no difference. Use `CRUCIBLE_STORAGE_BACKEND=gcs`, not Google's S3 i
 
 Give the server that identity, using the first option that applies:
 
-- On Google Cloud (a VM, Cloud Run, GKE): attach the service account; no key. With GKE Workload Identity Federation for the Kubernetes account itself, also set `MULTIPART_UPLOAD_SIGNER` to the service account's email and grant the Kubernetes identity Token Creator on it.
+- On Google Cloud (a VM, Cloud Run, GKE): attach the service account; no key. With GKE Workload Identity Federation for the Kubernetes account itself, also set `MULTIPART_UPLOAD_SIGNER` to the service account's email and grant the Kubernetes identity Token Creator on it; the server then acts as that service account for everything.
 - Elsewhere, such as this bundle on a lab server: Workload Identity Federation if your identity provider supports it. Otherwise a key, where your organization allows keys: save it as `secrets/google-credentials.json` and add `compose.override.yaml` next to `compose.yaml`:
 
 ```yaml
