@@ -30,7 +30,7 @@ x-storage-environment: &storage-environment
   MULTIPART_UPLOAD_ENABLED: "true"
   MULTIPART_UPLOAD_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}
   FILE_VERSION_RETENTION_DAYS: ${CRUCIBLE_FILE_VERSION_RETENTION_DAYS:-14}
-  STORAGE_CLEANUP_ENABLED: ${CRUCIBLE_STORAGE_CLEANUP_ENABLED:-false}
+  STORAGE_CLEANUP_ENABLED: ${CRUCIBLE_STORAGE_CLEANUP_ENABLED:-true}
 
 services:
   db:
@@ -97,8 +97,8 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # Hourly: aborts expired uploads and deletes replaced file content past its grace period, once
-  # CRUCIBLE_STORAGE_CLEANUP_ENABLED=true (off by default for now).
+  # Hourly: aborts expired uploads and deletes replaced file content past its grace period
+  # (CRUCIBLE_STORAGE_CLEANUP_ENABLED=false turns it off).
   storage-cleanup:
     <<: *api
     pull_policy: never
