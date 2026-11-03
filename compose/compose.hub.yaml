@@ -10,6 +10,7 @@ services:
       HUB_AUTH_PUBLIC_API_URL: ${CRUCIBLE_PUBLIC_URL}/api/v3
       ORCID_CLIENT_ID: ${ORCID_CLIENT_ID:?Set ORCID_CLIENT_ID from your ORCID application}
       HUB_AUTH_ORCID_ISSUER: ${ORCID_ISSUER:-https://orcid.org}
+      ORCID_ISSUER: ${ORCID_ISSUER:-https://orcid.org}
     secrets:
       - HUB_AUTH_CLIENT_SECRET
       - ORCID_CLIENT_SECRET
