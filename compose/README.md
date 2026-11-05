@@ -229,6 +229,8 @@ ORCID_CLIENT_ID=APP-XXXXXXXXXXXXXXXX
 # ORCID_ISSUER=https://sandbox.orcid.org
 ```
 
+`compose.hub.yaml` writes these into the API's explicit provider list, `CRUCIBLE_AUTH_PROVIDERS`. To change or add providers, see [the provider list](../../docs/hub_auth_operations.md#the-provider-list) and `auth-providers.example.json`.
+
 Then `docker compose up -d --wait`. Until the Hub runs, `/hub/` answers `502`.
 
 ### 2a. The Hub on this machine

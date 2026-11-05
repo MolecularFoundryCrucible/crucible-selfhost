@@ -1,0 +1,22 @@
+[
+  {
+    "key": "orcid",
+    "display_name": "ORCID",
+    "issuer": "https://orcid.org",
+    "client_id": "APP-XXXXXXXXXXXXXXXX",
+    "scopes": "openid",
+    "token_endpoint_auth_method": "client_secret_post",
+    "registration": "open",
+    "legacy_callback": true
+  },
+  {
+    "key": "lab",
+    "display_name": "My Lab Login",
+    "issuer": "https://login.mylab.org/realms/crucible",
+    "client_id": "crucible",
+    "scopes": "openid profile",
+    "token_endpoint_auth_method": "client_secret_basic",
+    "registration": "closed",
+    "legacy_callback": false
+  }
+]
