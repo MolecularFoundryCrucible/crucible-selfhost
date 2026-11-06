@@ -140,6 +140,10 @@ This makes the newest kept version current again and keeps the content it replac
 
 SeaweedFS frees the disk space of deleted files later, when its background compaction runs (once about 30% of a storage unit is deleted data), and compaction itself needs some free space: keep a margin on the disk and watch it. Deleting a file or a dataset still removes only the database records, not the stored bytes; that comes in a later version.
 
+### Sign-in records
+
+The `auth-cleanup` service runs `python -m app.cli auth cleanup` every hour: it deletes expired sign-in transactions, codes and Hub tokens, sign-in history older than a year, and accounts left waiting for approval for 30 days. Set `CRUCIBLE_AUTH_EVENT_RETENTION_DAYS` in `.env` to keep the history longer or shorter. `docker compose exec api python -m app.cli auth cleanup --dry-run` shows what it would remove.
+
 ### Using another S3-compatible store
 
 An institution's object store (or a cloud one) can replace SeaweedFS. It must accept presigned URLs with signed `x-amz-checksum-crc32c` headers and refuse a part whose bytes do not match; `storage check` tests exactly that, so run it before relying on the store. Create two buckets on it, put its key pair in `secrets/S3_ACCESS_KEY_ID` and `secrets/S3_SECRET_ACCESS_KEY`, and in `.env` remove `COMPOSE_PROFILES=bundled-storage` and set:

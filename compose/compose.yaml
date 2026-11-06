@@ -120,6 +120,23 @@ services:
         required: false
     restart: unless-stopped
 
+  # Hourly: removes expired sign-in records, sign-in history older than a year
+  # (CRUCIBLE_AUTH_EVENT_RETENTION_DAYS), and accounts left waiting for approval 30 days.
+  auth-cleanup:
+    <<: *api
+    pull_policy: never
+    command: ["/bin/sh", "-c", "trap 'exit 0' TERM; while true; do python -m app.cli auth cleanup; sleep 3600 & wait $$!; done"]
+    environment:
+      <<: *api-environment
+      CRUCIBLE_AUTH_EVENT_RETENTION_DAYS: ${CRUCIBLE_AUTH_EVENT_RETENTION_DAYS:-365}
+    secrets:
+      - PGDB_PW
+    networks: [backend]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   # File storage. Leave the bundled-storage profile out of COMPOSE_PROFILES to use another
   # S3-compatible store instead (README.md, "File storage").
   seaweedfs:
