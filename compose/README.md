@@ -233,7 +233,7 @@ ORCID_CLIENT_ID=APP-XXXXXXXXXXXXXXXX
 # ORCID_ISSUER=https://sandbox.orcid.org
 ```
 
-`compose.hub.yaml` writes these into the API's explicit provider list, `CRUCIBLE_AUTH_PROVIDERS`. To change or add providers, see [the provider list](../../docs/hub_auth_operations.md#the-provider-list) and `auth-providers.example.json`.
+`compose.hub.yaml` writes these into the API's explicit provider list, `CRUCIBLE_AUTH_PROVIDERS`. It also registers the programs allowed to sign people in, `CRUCIBLE_AUTH_CLIENTS`: the Hub, with the secret above (mounted as `OAUTH_HUB_CLIENT_SECRET`), and the nano-crucible command line, which needs no secret. To change or add providers, see [the provider list](../../docs/hub_auth_operations.md#the-provider-list) and `auth-providers.example.json`.
 
 Then `docker compose up -d --wait`. Until the Hub runs, `/hub/` answers `502`.
 

@@ -1,13 +1,22 @@
-# Sign-in through the Crucible Hub (ORCID). Add to COMPOSE_FILE in .env:
+# Sign-in through the Crucible Hub (ORCID), and for the nano-crucible command line. Add to COMPOSE_FILE in .env:
 #   COMPOSE_FILE=compose.yaml:compose.hub.yaml
 # Needs HTTPS (CRUCIBLE_PUBLIC_URL starting with https://) and an ORCID application; see README.md.
 
 services:
   api:
     environment:
-      HUB_AUTH_ENABLED: "true"
-      HUB_AUTH_CALLBACK_URI: ${CRUCIBLE_PUBLIC_URL:?Set CRUCIBLE_PUBLIC_URL to the https:// address people use}/hub/auth/callback
-      HUB_AUTH_PUBLIC_API_URL: ${CRUCIBLE_PUBLIC_URL}/api/v3
+      HUB_AUTH_PUBLIC_API_URL: ${CRUCIBLE_PUBLIC_URL:?Set CRUCIBLE_PUBLIC_URL to the https:// address people use}/api/v3
+      CRUCIBLE_AUTH_CLIENTS: >-
+        [{"key": "hub",
+          "client_id": "crucible-hub",
+          "display_name": "Crucible Hub",
+          "type": "confidential",
+          "redirect_uris": ["${CRUCIBLE_PUBLIC_URL}/hub/auth/callback", "${CRUCIBLE_PUBLIC_URL}/hub/auth/link/callback"]},
+         {"key": "nanocrucible",
+          "client_id": "nano-crucible",
+          "display_name": "nano-crucible",
+          "type": "public",
+          "redirect_uris": ["http://127.0.0.1/callback", "http://[::1]/callback"]}]
       ORCID_CLIENT_ID: ${ORCID_CLIENT_ID:?Set ORCID_CLIENT_ID from your ORCID application}
       ORCID_ISSUER: ${ORCID_ISSUER:-https://orcid.org}
       CRUCIBLE_AUTH_PROVIDERS: >-
@@ -20,7 +29,7 @@ services:
           "registration": "open",
           "legacy_callback": true}]
     secrets:
-      - HUB_AUTH_CLIENT_SECRET
+      - OAUTH_HUB_CLIENT_SECRET
       - ORCID_CLIENT_SECRET
       - OIDC_ORCID_CLIENT_SECRET
 
@@ -29,7 +38,7 @@ services:
       CRUCIBLE_HUB_UPSTREAM: ${CRUCIBLE_HUB_UPSTREAM:-hub:3000}
 
 secrets:
-  HUB_AUTH_CLIENT_SECRET:
+  OAUTH_HUB_CLIENT_SECRET:
     file: ./secrets/HUB_AUTH_CLIENT_SECRET
   ORCID_CLIENT_SECRET:
     file: ./secrets/ORCID_CLIENT_SECRET
