@@ -22,7 +22,17 @@ handle /api/v3/auth/hub/* {
 	}
 }
 
+# The same body limits as the API's own (API_MAX_BODY_MIB, API_MAX_THUMBNAIL_BODY_MIB), refused here
+# before they reach it. Files never pass through the API; thumbnails arrive as base64 JSON.
 handle_path /api/v3/* {
+	@thumbnail path_regexp ^/datasets/[^/]+/thumbnails(/[^/]+)?/?$
+	@other not path_regexp ^/datasets/[^/]+/thumbnails(/[^/]+)?/?$
+	request_body @thumbnail {
+		max_size 20MiB
+	}
+	request_body @other {
+		max_size 10MiB
+	}
 	reverse_proxy api:8000
 }
 
