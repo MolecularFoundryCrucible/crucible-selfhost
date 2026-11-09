@@ -5,7 +5,7 @@ Usage:
 
 or with --api-url and --api-key. KEY is a platform administrator's API key
 (`python -m app.cli admin create`). The test creates a project, a sample, a dataset with an uploaded
-and then replaced file, and a second user, so run it against a throwaway installation, never against
+and then replaced file, a second user and a service account, so run it against a throwaway installation, never against
 one holding real data. Uses only the Python standard library. Exits 0 when every step passes;
 otherwise prints the failing step and exits 1.
 """
@@ -142,11 +142,14 @@ def run(base: str, key: str) -> None:
     expect("find the dataset by MFID", status == 200 and isinstance(items, list) and [field(item, "unique_id") for item in items] == [dataset_mfid], listed)
 
     username = f"smoke{suffix}"
-    status, user = request(base, "POST", "/users", key, {"user_info": {"first_name": "Smoke", "last_name": "Reader", "username": username}})
+    status, user = request(base, "POST", "/users", key, {"user_info": {"first_name": "Smoke", "last_name": "Person", "username": username}})
     expect("create a second user", status == 200, user)
-    status, issued = request(base, "POST", f"/users/{username}/apikey/regenerate", key)
-    expect("issue the second user a key", status == 200 and field(issued, "api_key"), issued)
-    reader = field(issued, "api_key")
+    reader_name = f"smoke-reader{suffix}"
+    status, created = request(base, "POST", "/service_accounts", key, {"username": reader_name})
+    expect("create a service account to read as another identity", status == 200 and field(created, "api_key"), created)
+    reader = field(created, "api_key")
+    status, demoted = request(base, "PATCH", f"/service_accounts/{reader_name}", key, {"platform_role": "none"})
+    expect("give it no platform role, so it sees only what is shared", status == 200, demoted)
 
     status, _ = request(base, "GET", f"/samples/{sample_mfid}", reader)
     expect("another user cannot read the sample while it is private", status in (403, 404), status)
