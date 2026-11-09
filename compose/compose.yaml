@@ -16,9 +16,24 @@ x-api: &api
     API_PUBLIC_URL: ${CRUCIBLE_PUBLIC_URL:-http://localhost:${CRUCIBLE_HTTP_PORT:-8080}}
     API_PATH: api/v3
     ALEMBIC_PRODUCTION_DATABASE: ""
+    # Passwords are for small installations; an institution turns them off and lists its own
+    # sign-in provider (see README.md). People are added by an administrator unless registration
+    # is set to approval.
+    CRUCIBLE_AUTH_PASSWORD_ENABLED: ${CRUCIBLE_AUTH_PASSWORD_ENABLED:-true}
+    CRUCIBLE_AUTH_PASSWORD_REGISTRATION: ${CRUCIBLE_AUTH_PASSWORD_REGISTRATION:-closed}
+    CRUCIBLE_AUTH_PEPPER_ID: ${CRUCIBLE_AUTH_PEPPER_ID:-one}
+    # The programs that may sign people in. The nano-crucible command line needs no secret;
+    # compose.hub.yaml adds the Hub.
+    CRUCIBLE_AUTH_CLIENTS: >-
+      [{"key": "nanocrucible",
+        "client_id": "nano-crucible",
+        "display_name": "nano-crucible",
+        "type": "public",
+        "redirect_uris": ["http://127.0.0.1/callback", "http://[::1]/callback"]}]
   secrets:
     - PGDB_PW
     - CRUCIBLE_SECRET_KEY
+    - CRUCIBLE_AUTH_PEPPER
 
 # Storage settings shared by the API and the cleanup job.
 x-storage-environment: &storage-environment
@@ -82,6 +97,7 @@ services:
     secrets:
       - PGDB_PW
       - CRUCIBLE_SECRET_KEY
+      - CRUCIBLE_AUTH_PEPPER
       - S3_ACCESS_KEY_ID
       - S3_SECRET_ACCESS_KEY
     networks: [backend, crucible, storage]
@@ -211,12 +227,15 @@ services:
       CRUCIBLE_SITE_ADDRESS: ${CRUCIBLE_SITE_ADDRESS:-:80}
       CRUCIBLE_HUB_UPSTREAM: ${CRUCIBLE_HUB_UPSTREAM:-}
       CRUCIBLE_UPLOAD_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}
+      CRUCIBLE_HTTP_HOSTS: ${CRUCIBLE_HTTP_HOSTS:-}
+    # Reachable from this machine only, unless CRUCIBLE_BIND_ADDRESS opens it to a network.
     ports:
-      - "${CRUCIBLE_HTTP_PORT:-8080}:80"
-      - "${CRUCIBLE_HTTPS_PORT:-8443}:443"
-      - "${CRUCIBLE_HTTPS_PORT:-8443}:443/udp"
+      - "${CRUCIBLE_BIND_ADDRESS:-127.0.0.1}:${CRUCIBLE_HTTP_PORT:-8080}:80"
+      - "${CRUCIBLE_BIND_ADDRESS:-127.0.0.1}:${CRUCIBLE_HTTPS_PORT:-8443}:443"
+      - "${CRUCIBLE_BIND_ADDRESS:-127.0.0.1}:${CRUCIBLE_HTTPS_PORT:-8443}:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro,z
+      - ./local:/etc/caddy/local:ro,z
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
@@ -231,6 +250,8 @@ secrets:
     file: ./secrets/PGDB_PW
   CRUCIBLE_SECRET_KEY:
     file: ./secrets/CRUCIBLE_SECRET_KEY
+  CRUCIBLE_AUTH_PEPPER:
+    file: ./secrets/CRUCIBLE_AUTH_PEPPER
   S3_ACCESS_KEY_ID:
     file: ./secrets/S3_ACCESS_KEY_ID
   S3_SECRET_ACCESS_KEY:

@@ -6,16 +6,23 @@ Usage:
 or with --api-url and --api-key. KEY is a platform administrator's API key
 (`python -m app.cli admin create`). The test creates a project, a sample, a dataset with an uploaded
 and then replaced file, a second user and a service account, so run it against a throwaway installation, never against
-one holding real data. Uses only the Python standard library. Exits 0 when every step passes;
+one holding real data. With --password-link (the `password_link` that `admin create` prints when
+passwords are on), it also sets the administrator's password and signs in as the nano-crucible
+command line does. Uses only the Python standard library. Exits 0 when every step passes;
 otherwise prints the failing step and exits 1.
 """
 import argparse
 import base64
 import hashlib
+import html
+import http.cookiejar
 import json
 import os
+import re
+import secrets
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from uuid import uuid4
 
@@ -161,15 +168,92 @@ def run(base: str, key: str) -> None:
     expect("another user cannot read the private dataset", status in (403, 404), status)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def browser():
+    """A browser stand-in: keeps cookies, and shows each redirect instead of following it."""
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), _NoRedirect)
+
+    def visit(method: str, url: str, form: dict | None = None) -> tuple[int, str, dict]:
+        data = urllib.parse.urlencode(form).encode() if form is not None else None
+        call = urllib.request.Request(url, data=data, method=method)
+        try:
+            with opener.open(call, timeout=60) as response:
+                return response.status, response.read().decode(errors="replace"), {name.lower(): value for name, value in response.headers.items()}
+        except urllib.error.HTTPError as error:
+            return error.code, error.read().decode(errors="replace"), {name.lower(): value for name, value in error.headers.items()}
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            raise StepFailed(f"{method} {url.split('?')[0]}: cannot reach the server ({error})") from None
+
+    return visit
+
+
+def sign_in_with_a_password(base: str, key: str, link: str) -> None:
+    """Set the administrator's password through the one-time link, then sign in the way the
+    nano-crucible command line does: PKCE, a loopback address, the password form, the confirmation
+    page, and the code exchanged for a session."""
+    base = base.rstrip("/")
+    password = "smoke test " + secrets.token_urlsafe(12)
+    status, profile = request(base, "GET", "/account/profile", key)
+    username = field(profile, "username")
+    expect("read the administrator's username", status == 200 and username, profile)
+
+    visit = browser()
+    status, _, headers = visit("GET", link)
+    expect("password link: opening it moves the token out of the address", status == 303 and "token" not in headers.get("location", ""), status)
+    status, page, _ = visit("GET", headers["location"])
+    token = re.search(r'name="form_token" value="([^"]+)"', page)
+    expect("password link: the form", status == 200 and token, status)
+    status, page, _ = visit("POST", f"{base}/oauth/password-link", {"password": password, "confirm": password, "form_token": token.group(1)})
+    expect("password link: set the password", status == 200 and "Password set" in page, status)
+    status, _, _ = visit("GET", link)
+    expect("password link: works once", status == 400, status)
+
+    verifier = secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    redirect_uri, state = "http://127.0.0.1:53682/callback", secrets.token_urlsafe(16)
+    query = urllib.parse.urlencode({"response_type": "code", "client_id": "nano-crucible", "redirect_uri": redirect_uri, "state": state,
+                                    "code_challenge": challenge, "code_challenge_method": "S256"})
+    status, _, headers = visit("GET", f"{base}/oauth/authorize?{query}")
+    form_url = headers.get("location", "")
+    expect("sign in: the API sends the browser to its password form", status == 302 and "/oauth/password?" in form_url, (status, form_url.split("?")[0]))
+    status, page, _ = visit("GET", form_url)
+    expect("sign in: the password form", status == 200 and 'name="password"' in page, status)
+    form_state = urllib.parse.parse_qs(urllib.parse.urlsplit(form_url).query)["state"][0]
+    status, _, _ = visit("POST", f"{base}/oauth/password", {"username": username, "password": "not the password", "state": form_state})
+    expect("sign in: a wrong password is refused", status == 401, status)
+    status, page, _ = visit("POST", f"{base}/oauth/password", {"username": username, "password": password, "state": form_state})
+    allow = re.search(r'class="allow" href="([^"]+)"', page)
+    expect("sign in: the program is named for confirmation", status == 200 and allow and "nano-crucible" in page, status)
+    answer = urllib.parse.parse_qs(urllib.parse.urlsplit(html.unescape(allow.group(1))).query)
+    expect("sign in: the answer carries the code, the state and the issuer", answer.get("state") == [state] and answer.get("iss") == [base] and answer.get("code"), sorted(answer))
+
+    token_form = urllib.parse.urlencode({"grant_type": "authorization_code", "code": answer["code"][0], "redirect_uri": redirect_uri,
+                                         "code_verifier": verifier, "client_id": "nano-crucible"}).encode()
+    status, raw, _ = fetch("POST", f"{base}/oauth/token", token_form, {"Content-Type": "application/x-www-form-urlencoded"})
+    tokens = json.loads(raw) if raw else {}
+    expect("sign in: the code becomes a session", status == 200 and tokens.get("access_token") and tokens.get("refresh_token"), (status, tokens.get("error")))
+    status, signed_in = request(base, "GET", "/account/profile", tokens["access_token"])
+    expect("sign in: the session is the administrator's", status == 200 and field(signed_in, "username") == username, signed_in)
+    status, raw, _ = fetch("POST", f"{base}/oauth/token", token_form, {"Content-Type": "application/x-www-form-urlencoded"})
+    expect("sign in: the code works once", status == 400, status)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--api-url", default=os.getenv("CRUCIBLE_API_URL"))
     parser.add_argument("--api-key", default=os.getenv("CRUCIBLE_API_KEY"), help="Prefer the CRUCIBLE_API_KEY environment variable, which keeps the key off the command line")
+    parser.add_argument("--password-link", default=os.getenv("CRUCIBLE_PASSWORD_LINK"), help="The administrator's one-time password link; adds the password sign-in steps")
     args = parser.parse_args()
     if not args.api_url or not args.api_key:
         parser.error("give the API URL and an administrator's key (--api-url and --api-key, or CRUCIBLE_API_URL and CRUCIBLE_API_KEY)")
     try:
         run(args.api_url, args.api_key)
+        if args.password_link:
+            sign_in_with_a_password(args.api_url, args.api_key, args.password_link)
     except StepFailed as error:
         print(f"FAIL {error}", file=sys.stderr, flush=True)
         return 1

@@ -1,6 +1,23 @@
-# CRUCIBLE_SITE_ADDRESS is ":80" for plain HTTP on the published port, or a domain name
-# (for example crucible.mylab.org) for automatic HTTPS from Let's Encrypt.
+# CRUCIBLE_SITE_ADDRESS is ":80" for plain HTTP on this machine, or a domain name (for example
+# crucible.mylab.org) for HTTPS. Files in ./local adjust how the certificate is obtained
+# (README.md, "Certificates"): global-*.caddy for global options, site-*.caddy for this site.
+{
+	# The plain-HTTP check below must run before the routing blocks.
+	order respond before handle
+	import /etc/caddy/local/global-*.caddy
+}
+
 {$CRUCIBLE_SITE_ADDRESS}
+
+import /etc/caddy/local/site-*.caddy
+
+# Plain HTTP is for this machine only: API keys and passwords must not cross a network unencrypted.
+# CRUCIBLE_HTTP_HOSTS adds names for a proxy in front that already provides HTTPS.
+@plain_http_elsewhere {
+	protocol http
+	not host localhost 127.0.0.1 [::1] {$CRUCIBLE_HTTP_HOSTS}
+}
+respond @plain_http_elsewhere "Crucible serves plain HTTP only on localhost. Set up HTTPS to reach it from other machines (deploy/compose/README.md)." 421
 
 # Stored files pass through byte for byte, with their length, so downloads can resume.
 @compressible not path /{$CRUCIBLE_UPLOAD_BUCKET:crucible-files}/*

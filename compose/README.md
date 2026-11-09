@@ -2,11 +2,13 @@
 
 This folder runs Crucible on one machine: PostgreSQL (with pgvector), the Crucible API, SeaweedFS for files, and Caddy as the web server in front. It suits a small group: one lab, a few workstations, an administrator who sets it up once.
 
-What works today: the API (projects, samples, datasets and their metadata, users, access control), file upload, replacement, and download (see [File storage](#file-storage)), the Python client nano-crucible, API keys, and, optionally, the Crucible Hub web interface with ORCID sign-in (see [Adding the Hub](#adding-the-hub)). Not yet: local passwords (Phase 3), and the optional printing, ingestion, and proposal integrations, which stay off.
+What works: the API (projects, samples, datasets and their metadata, users, access control), file upload, replacement, and download (see [File storage](#file-storage)), sign-in with a password or through a provider such as ORCID or your institution's login (see [Signing in](#signing-in)), the Python client nano-crucible, API keys, and, optionally, the Crucible Hub web interface (see [Adding the Hub](#adding-the-hub)). Not included: the optional printing, ingestion, and proposal integrations, which are off.
+
+As installed, only this machine can reach the server. That is enough to try it and for one person's own use. [Putting it on a network](#putting-it-on-a-network) opens it to a lab, with HTTPS.
 
 ## Requirements
 
-- Linux with Docker Engine 24 or newer and the Compose plugin 2.20 or newer (`docker compose version`).
+- Linux with Docker Engine 28 or newer and the Compose plugin 2.20 or newer (`docker version`, `docker compose version`). Older Docker releases let other machines on the same network segment reach ports published to this machine only.
 - About 2 GB of free memory and a few GB of disk to start; the database grows with your data.
 - A copy of this repository (images are built from it until versioned images are published).
 
@@ -17,7 +19,7 @@ Secrets are files in `secrets/`, given to the containers as Docker Compose secre
 ```bash
 cd deploy/compose
 mkdir -p secrets && chmod 700 secrets
-for name in POSTGRES_PASSWORD PGDB_PW CRUCIBLE_SECRET_KEY S3_SECRET_ACCESS_KEY; do
+for name in POSTGRES_PASSWORD PGDB_PW CRUCIBLE_SECRET_KEY CRUCIBLE_AUTH_PEPPER S3_SECRET_ACCESS_KEY; do
   openssl rand -hex 32 > "secrets/$name"
 done
 openssl rand -hex 16 > secrets/S3_ACCESS_KEY_ID
@@ -29,9 +31,10 @@ chmod 644 secrets/*
 | `POSTGRES_PASSWORD` | the PostgreSQL administrator: creates the database the first time, and is used for backups and the database health check; the API never uses it |
 | `PGDB_PW` | the ordinary `crucible` database account the API uses |
 | `CRUCIBLE_SECRET_KEY` | signing browser sessions and list cursors; changing it signs everyone out |
+| `CRUCIBLE_AUTH_PEPPER` | mixed into every password before it is stored, so a copy of the database alone cannot be used to guess passwords; losing it makes every password useless |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | the key pair the API uses with the file store; SeaweedFS takes the same pair. With your own store instead, put that store's key pair here |
 
-The folder is private to you (`700`); the files are readable (`644`) because the database container reads them as its own user. `secrets/` and `.env` are git-ignored. Keep a copy of the secrets with your backups: a restored database needs the same `PGDB_PW`, and `CRUCIBLE_SECRET_KEY` keeps existing sessions valid.
+The folder is private to you (`700`); the files are readable (`644`) because the database container reads them as its own user. `secrets/` and `.env` are git-ignored. Keep a copy of the secrets with your backups: a restored database needs the same `PGDB_PW`, `CRUCIBLE_SECRET_KEY` keeps existing sessions valid, and `CRUCIBLE_AUTH_PEPPER` keeps passwords working. Store the pepper apart from the database backups, since its purpose is that one without the other is not enough.
 
 ## 2. Configure
 
@@ -39,9 +42,7 @@ The folder is private to you (`700`); the files are readable (`644`) because the
 cp .env.example .env
 ```
 
-The defaults serve plain HTTP on port 8080 at `http://localhost:8080/api/v3/`. Edit `.env` to change the port, the number of API workers, or the address others use to reach the server (`CRUCIBLE_PUBLIC_URL`). Every setting is explained in `.env.example`.
-
-Plain HTTP sends every API key unencrypted, and the port is open to the whole network. Use it on this machine or for a trial on a network you trust; before other people connect, set up [HTTPS with a domain name](#https-with-a-domain-name).
+The defaults serve `http://localhost:8080/api/v3/` to this machine only: Docker listens on `127.0.0.1`, so nothing crosses a network, and Caddy refuses plain HTTP addressed to any other name. Edit `.env` to change the port or the number of API workers. Every setting is explained in `.env.example`.
 
 ## 3. Start
 
@@ -63,9 +64,12 @@ It should report `"status":"ok"` and `"schema_state":"current"`. The interactive
 docker compose run --rm api python -m app.cli admin create
 ```
 
-It asks for a name, an optional email, an optional ORCID (without one the account gets a Crucible MFID), and an optional username, then asks for confirmation. It prints an API key: this key signs in as the administrator, so treat it as a password and store it in a password manager. Run this by hand only; never as an automatic step, where the key would end up in logs.
+It asks for a name, an optional email, an optional ORCID (without one the account gets a Crucible MFID), and an optional username, then asks for confirmation. It prints two things, as one line of JSON:
 
-To script it instead, pass every value and `--no-input`:
+- `password_link`: open it in a browser on this machine to choose the administrator's password. It works once, for 24 hours.
+- `api_key`: a key that signs in as the administrator from scripts. Treat it as a password and store it in a password manager.
+
+Run this by hand only; never as an automatic step, where the key and the link would end up in logs. To script it instead, pass every value and `--no-input`:
 
 ```bash
 docker compose run --rm -T api python -m app.cli admin create --no-input --first-name Ada --last-name Lovelace --email ada@example.org
@@ -77,25 +81,86 @@ A second administrator needs `--allow-additional`, so an accidental second run d
 
 ```bash
 pip install nano-crucible
-crucible config set api_url http://<server>:8080/api/v3
+crucible config set api_url http://localhost:8080/api/v3
 crucible config set api_key <the key from step 4>
 crucible config show
 ```
 
-Or set `CRUCIBLE_API_URL` and `CRUCIBLE_API_KEY` in the environment. In Python, `CrucibleClient(api_url=..., api_key=...)` takes them directly. Uploading files needs nano-crucible 3.3.0 or newer with its default `upload_protocol` (`auto`); older versions, and `upload_protocol` `legacy`, use upload routes that work only with Google Cloud Storage.
+Or set `CRUCIBLE_API_URL` and `CRUCIBLE_API_KEY` in the environment. In Python, `CrucibleClient(api_url=..., api_key=...)` takes them directly. With nano-crucible 4.0 or newer, `crucible login` signs in with your password in a browser instead of a key. Uploading files needs nano-crucible 3.3.0 or newer with its default `upload_protocol` (`auto`); older versions, and `upload_protocol` `legacy`, use upload routes that work only with Google Cloud Storage.
 
-## HTTPS with a domain name
+To try it from a second machine before setting up HTTPS, forward the port over SSH and use the same address there: `ssh -L 8080:localhost:8080 you@server`.
 
-When the server has a public domain name, Caddy obtains and renews an HTTPS certificate from Let's Encrypt by itself. Point the domain's DNS at the machine, open ports 80 and 443, and set in `.env`:
+## Putting it on a network
+
+Other machines reach the server by one name, over HTTPS, with a certificate their browsers and Python already trust. Choose the name once and keep it: the Hub, nano-crucible, sign-in and every upload or download link carry it, and moving to a bigger server later is then only a matter of pointing the name at it.
+
+In `.env`, these change together:
 
 ```bash
 CRUCIBLE_SITE_ADDRESS=crucible.mylab.org
 CRUCIBLE_HTTP_PORT=80
 CRUCIBLE_HTTPS_PORT=443
+CRUCIBLE_BIND_ADDRESS=0.0.0.0
 CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
 ```
 
-then `docker compose up -d --wait`. Certificates are kept in the `caddy-data` volume. Use the bare domain name, without `https://` or a port. With rootless Docker, ports below 1024 need `sudo sysctl net.ipv4.ip_unprivileged_port_start=80`.
+then `docker compose up -d --wait`. Use the bare name in `CRUCIBLE_SITE_ADDRESS`, without `https://` or a port. With rootless Docker, ports below 1024 need `sudo sysctl net.ipv4.ip_unprivileged_port_start=80`. People working from outside the lab network should come in through your institution's VPN, not through a server opened to the internet, unless collaborators elsewhere need it.
+
+### Certificates
+
+Caddy needs a certificate for that name. Pick the first that fits:
+
+1. **Your institution issues one.** Most universities and national laboratories control their DNS and run a certificate service; ask IT for a name and a certificate for it. If the service speaks ACME (the protocol Let's Encrypt uses, which many do), Caddy renews by itself. Put the settings IT gives you in `local/global-acme.caddy`:
+
+   ```
+   acme_ca https://acme.myinstitution.edu/directory
+   acme_eab {
+   	key_id YOUR_KEY_ID
+   	mac_key YOUR_MAC_KEY
+   }
+   ```
+
+   If IT hands you certificate files instead, save them as `local/cert.pem` and `local/key.pem` and write `local/site-tls.caddy`, renewing the files yourself before they expire:
+
+   ```
+   tls /etc/caddy/local/cert.pem /etc/caddy/local/key.pem
+   ```
+
+2. **The server is reachable from the internet.** With the name's DNS pointing at it and ports 80 and 443 open, Caddy gets and renews a Let's Encrypt certificate with no further setting.
+
+3. **Your own domain, for a server the internet cannot reach.** Let's Encrypt can check the name through its DNS records instead. This needs a Caddy image built with your DNS provider's module ([caddy-dns](https://github.com/caddy-dns), using Caddy's official builder image), a provider token limited to that one zone, and `acme_dns` with it in `local/global-acme.caddy`. This bundle does not ship such an image, and this route has not been tested with it yet. Some routers refuse public names that resolve to local addresses; if the name does not resolve inside the lab, add it to the lab's own DNS.
+
+Files in `local/` are read by Caddy only, are not kept in git, and may hold credentials: keep the folder as private as `secrets/` (`chmod 700 local`). Caddy's own certificate authority (`CRUCIBLE_SITE_ADDRESS=localhost`) is for a trial on one computer only, since every other device would need its root certificate installed.
+
+### Behind your institution's proxy
+
+When IT's proxy or load balancer already provides HTTPS and forwards to this machine, keep Caddy on plain HTTP, listen where the proxy reaches it, and name the address it forwards for:
+
+```bash
+CRUCIBLE_BIND_ADDRESS=10.0.0.5
+CRUCIBLE_HTTP_HOSTS=crucible.mylab.org
+CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
+```
+
+Caddy ignores another proxy's forwarding headers until that proxy is named as trusted, so write its address in `local/global-proxy.caddy`:
+
+```
+servers {
+	trusted_proxies static 10.0.0.1/32
+}
+```
+
+The proxy must pass `Host`, set `X-Forwarded-For` to the client address and `X-Forwarded-Proto` to `https`, and be the only thing that can reach this port. Without the trusted address, every person appears to come from the proxy, and the sign-in attempt limits would treat them as one. [Using your own reverse proxy](#using-your-own-reverse-proxy) lists the rules for replacing Caddy altogether.
+
+## Signing in
+
+**Passwords** are on, and meant for small installations. An administrator adds each person (`POST /users`, or the Hub's Users page) and gives them a one-time link to choose their password: `POST /users/{user_ref}/password-link`, or on the server `docker compose run --rm api python -m app.cli admin password-link USER`. Passwords need at least 15 characters; guessing is slowed and then locked per account.
+
+- **Letting people ask for an account:** `CRUCIBLE_AUTH_PASSWORD_REGISTRATION=approval` adds a page at `/api/v3/oauth/register`. Each request waits for an administrator: `docker compose run --rm api python -m app.cli admin pending`, then `admin approve USER` or `admin reject USER` (or the Hub's Users page).
+- **A locked-out administrator:** `admin password-link USER` works for anyone, so a new link gets them back in.
+- **After a breach:** `docker compose run --rm api python -m app.cli auth revoke-passwords --commit` removes every password and ends those sessions, and `auth end-sessions --all --commit` ends everyone's; then issue new links. API keys are separate: revoke them with `DELETE /users/{user_ref}/apikey`.
+
+**A provider** (ORCID, or your institution's login through any OpenID Connect service such as Keycloak, Authentik or Entra ID) suits a larger group: nobody manages passwords, and people who leave lose access at the source. Providers need HTTPS. For ORCID, add `compose.orcid.yaml` (see [Adding the Hub](#adding-the-hub)). For others, or several side by side, list them in `CRUCIBLE_AUTH_PROVIDERS` as in `auth-providers.example.json` and [the provider list](../../docs/hub_auth_operations.md#the-provider-list); each entry says whether new people are refused, wait for approval, or get in at once. While both are on, the sign-in page offers the choice. With a provider in place, set `CRUCIBLE_AUTH_PASSWORD_ENABLED=false` unless some people still need passwords.
 
 ## File storage
 
@@ -207,11 +272,7 @@ The Crucible Hub is the web interface, where people sign in with ORCID. It is op
 
 ### What you need
 
-- **HTTPS.** Sign-in sets secure cookies and ORCID calls the server back, so plain HTTP does not work. Choose one:
-  - A public domain name: [HTTPS with a domain name](#https-with-a-domain-name) above.
-  - A name in your lab's DNS that the internet cannot reach: Caddy can still get a Let's Encrypt certificate through a DNS challenge, but needs a Caddy build with your DNS provider's module ([caddy-dns](https://github.com/caddy-dns)); this bundle does not ship one.
-  - A certificate from your institution: mount the files into the `proxy` service and add `tls /certs/cert.pem /certs/key.pem` under the site address in `Caddyfile`.
-  - A trial on one computer: `CRUCIBLE_SITE_ADDRESS=localhost` makes Caddy use its own certificate authority. Browsers warn until you trust its root certificate (`docker compose exec proxy cat /data/caddy/pki/authorities/local/root.crt > caddy-root.crt`, then add it to the system or browser). With the default ports the address is `https://localhost:8443`: use that, port included, wherever this guide writes `https://crucible.mylab.org`. Only for evaluation: every user's machine would need the certificate.
+- **HTTPS**, set up as in [Putting it on a network](#putting-it-on-a-network): sign-in sets secure cookies and ORCID calls the server back, so plain HTTP does not work with this Hub release.
 - **An ORCID application.** Register Public API credentials at [ORCID developer tools](https://orcid.org/developer-tools) (free, needs a verified email). The redirect URI is the API's, not the Hub's: `https://<your address>/api/v3/auth/hub/callback`, including the port when it is not 443. ORCID accepts only HTTPS redirect URIs and matches them exactly. For a trial, use the [ORCID sandbox](https://sandbox.orcid.org) and its separate accounts.
 
 ### 1. Turn on Hub sign-in in the API
@@ -227,7 +288,7 @@ chmod 644 secrets/*
 In `.env`:
 
 ```bash
-COMPOSE_FILE=compose.yaml:compose.hub.yaml
+COMPOSE_FILE=compose.yaml:compose.hub.yaml:compose.orcid.yaml
 # The address people use: no /api/v3, no trailing slash, and the port if it is not 443.
 CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
 ORCID_CLIENT_ID=APP-XXXXXXXXXXXXXXXX
@@ -235,7 +296,7 @@ ORCID_CLIENT_ID=APP-XXXXXXXXXXXXXXXX
 # ORCID_ISSUER=https://sandbox.orcid.org
 ```
 
-`compose.hub.yaml` writes these into the API's explicit provider list, `CRUCIBLE_AUTH_PROVIDERS`. It also registers the programs allowed to sign people in, `CRUCIBLE_AUTH_CLIENTS`: the Hub, with the secret above (mounted as `OAUTH_HUB_CLIENT_SECRET`), and the nano-crucible command line, which needs no secret. To change or add providers, see [the provider list](../../docs/hub_auth_operations.md#the-provider-list) and `auth-providers.example.json`.
+`compose.hub.yaml` adds the Hub to the programs allowed to sign people in (`CRUCIBLE_AUTH_CLIENTS`), with the secret above (mounted as `OAUTH_HUB_CLIENT_SECRET`), beside the nano-crucible command line, which needs no secret. `compose.orcid.yaml` writes the ORCID settings into the API's explicit provider list, `CRUCIBLE_AUTH_PROVIDERS`; leave it out to sign in with passwords only. To change or add providers, see [the provider list](../../docs/hub_auth_operations.md#the-provider-list) and `auth-providers.example.json`.
 
 Then `docker compose up -d --wait`. Until the Hub runs, `/hub/` answers `502`.
 
@@ -307,6 +368,19 @@ openssl rand -hex 32 > secrets/S3_SECRET_ACCESS_KEY
 chmod 644 secrets/*
 echo "COMPOSE_PROFILES=bundled-storage" >> .env
 ```
+
+To 4.0.0, three things change for an existing installation; do them before `docker compose up`:
+
+```bash
+# 1. The new secret every installation needs.
+openssl rand -hex 32 > secrets/CRUCIBLE_AUTH_PEPPER && chmod 644 secrets/CRUCIBLE_AUTH_PEPPER
+# 2. The server now listens on this machine only. If other machines use it:
+echo "CRUCIBLE_BIND_ADDRESS=0.0.0.0" >> .env
+# 3. ORCID sign-in moved to its own file. If you use it, in .env:
+#    COMPOSE_FILE=compose.yaml:compose.hub.yaml:compose.orcid.yaml
+```
+
+Plain HTTP is now refused for any name but `localhost`, so an installation that other machines reached over plain HTTP needs HTTPS first ([Putting it on a network](#putting-it-on-a-network)). Passwords are on by default; set `CRUCIBLE_AUTH_PASSWORD_ENABLED=false` to keep signing in through your provider only. Docker Engine 28 or newer is now required.
 
 Compare your `.env` with `.env.example` after each upgrade for other new settings.
 

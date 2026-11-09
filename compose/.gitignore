@@ -2,3 +2,5 @@
 secrets/
 *.dump
 !.env.example
+local/*
+!local/README
