@@ -22,6 +22,16 @@ handle /api/v3/auth/hub/* {
 	}
 }
 
+# The API's own sign-in forms: small requests only, like the Hub sign-in above.
+@sign_in_forms path /api/v3/oauth/password /api/v3/oauth/password-link /api/v3/oauth/register /api/v3/oauth/device /api/v3/oauth/device/*
+handle @sign_in_forms {
+	request_body {
+		max_size 8KB
+	}
+	uri strip_prefix /api/v3
+	reverse_proxy api:8000
+}
+
 # The same body limits as the API's own (API_MAX_BODY_MIB, API_MAX_THUMBNAIL_BODY_MIB), refused here
 # before they reach it. Files never pass through the API; thumbnails arrive as base64 JSON.
 handle_path /api/v3/* {
