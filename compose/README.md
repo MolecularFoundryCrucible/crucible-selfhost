@@ -41,6 +41,8 @@ cp .env.example .env
 
 The defaults serve plain HTTP on port 8080 at `http://localhost:8080/api/v3/`. Edit `.env` to change the port, the number of API workers, or the address others use to reach the server (`CRUCIBLE_PUBLIC_URL`). Every setting is explained in `.env.example`.
 
+Plain HTTP sends every API key unencrypted, and the port is open to the whole network. Use it on this machine or for a trial on a network you trust; before other people connect, set up [HTTPS with a domain name](#https-with-a-domain-name).
+
 ## 3. Start
 
 ```bash
@@ -262,11 +264,13 @@ Stop the Hub project (`docker compose down` in its folder; add `-v` to delete it
 
 ## Backups
 
-Back up the database, the stored files, and the `secrets/` folder. A database backup contains every user's API key, so treat it like the secrets: keep it in a private folder outside the repository. Back up the database first and the files second: a file uploaded in between is then only an unused extra, while the other order could leave a record pointing at bytes the backup lacks.
+Back up the database, the stored files, and the `secrets/` folder. A database backup contains every user's API key, so treat it like the secrets: encrypt it, and keep it in a private folder outside the repository. Back up the database first and the files second: a file uploaded in between is then only an unused extra, while the other order could leave a record pointing at bytes the backup lacks.
+
+The commands below encrypt the database backup with [age](https://age-encryption.org). Make a key pair once with `age-keygen -o ~/crucible-backup-key.txt`, keep that file somewhere other than the backups (a password manager, a second disk), and use the public key it prints (`age1...`) as the recipient. Anyone with the backup but not the key file learns nothing.
 
 ```bash
 mkdir -p ~/crucible-backups/files && chmod 700 ~/crucible-backups
-(umask 077; docker compose exec -T db pg_dump --username postgres --dbname crucible --format custom > ~/crucible-backups/crucible-$(date +%F).dump)
+(umask 077; docker compose exec -T db pg_dump --username postgres --dbname crucible --format custom | age --recipient age1yourpublickey > ~/crucible-backups/crucible-$(date +%F).dump.age)
 docker compose run --rm --user "$(id -u):$(id -g)" files-backup
 ```
 
@@ -276,7 +280,7 @@ To restore into a running installation (this replaces its database, and adds the
 
 ```bash
 docker compose stop api storage-cleanup
-docker compose exec -T db pg_restore --username postgres --dbname crucible --clean --if-exists < ~/crucible-backups/crucible-2026-10-26.dump
+age --decrypt --identity ~/crucible-backup-key.txt ~/crucible-backups/crucible-2026-10-26.dump.age | docker compose exec -T db pg_restore --username postgres --dbname crucible --clean --if-exists
 docker compose run --rm --user "$(id -u):$(id -g)" files-backup restore
 docker compose up -d --wait
 ```
@@ -288,7 +292,7 @@ To move to a new machine, copy the repository, `.env`, `secrets/`, and the backu
 ## Upgrading
 
 ```bash
-(umask 077; docker compose exec -T db pg_dump --username postgres --dbname crucible --format custom > ~/crucible-backups/before-upgrade.dump)
+(umask 077; docker compose exec -T db pg_dump --username postgres --dbname crucible --format custom | age --recipient age1yourpublickey > ~/crucible-backups/before-upgrade.dump.age)
 git pull
 docker compose up -d --build --wait
 ```
