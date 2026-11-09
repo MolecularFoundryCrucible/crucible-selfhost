@@ -1,0 +1,28 @@
+# Sign-in with ORCID. Add to COMPOSE_FILE in .env, after any other files:
+#   COMPOSE_FILE=compose.yaml:compose.hub.yaml:compose.orcid.yaml
+# Needs HTTPS and an ORCID application; see README.md. For other providers, or several, set
+# CRUCIBLE_AUTH_PROVIDERS yourself (auth-providers.example.json).
+
+services:
+  api:
+    environment:
+      ORCID_CLIENT_ID: ${ORCID_CLIENT_ID:?Set ORCID_CLIENT_ID from your ORCID application}
+      ORCID_ISSUER: ${ORCID_ISSUER:-https://orcid.org}
+      CRUCIBLE_AUTH_PROVIDERS: >-
+        [{"key": "orcid",
+          "display_name": "ORCID",
+          "issuer": "${ORCID_ISSUER:-https://orcid.org}",
+          "client_id": "${ORCID_CLIENT_ID:?Set ORCID_CLIENT_ID from your ORCID application}",
+          "scopes": "openid",
+          "token_endpoint_auth_method": "client_secret_post",
+          "registration": "${ORCID_REGISTRATION:-open}",
+          "legacy_callback": true}]
+    secrets:
+      - ORCID_CLIENT_SECRET
+      - OIDC_ORCID_CLIENT_SECRET
+
+secrets:
+  ORCID_CLIENT_SECRET:
+    file: ./secrets/ORCID_CLIENT_SECRET
+  OIDC_ORCID_CLIENT_SECRET:
+    file: ./secrets/ORCID_CLIENT_SECRET
