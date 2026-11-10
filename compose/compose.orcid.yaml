@@ -6,7 +6,6 @@
 services:
   api:
     environment:
-      ORCID_CLIENT_ID: ${ORCID_CLIENT_ID:?Set ORCID_CLIENT_ID from your ORCID application}
       ORCID_ISSUER: ${ORCID_ISSUER:-https://orcid.org}
       CRUCIBLE_AUTH_PROVIDERS: >-
         [{"key": "orcid",
@@ -18,11 +17,8 @@ services:
           "registration": "${ORCID_REGISTRATION:-open}",
           "legacy_callback": true}]
     secrets:
-      - ORCID_CLIENT_SECRET
       - OIDC_ORCID_CLIENT_SECRET
 
 secrets:
-  ORCID_CLIENT_SECRET:
-    file: ./secrets/ORCID_CLIENT_SECRET
   OIDC_ORCID_CLIENT_SECRET:
     file: ./secrets/ORCID_CLIENT_SECRET
