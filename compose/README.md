@@ -273,7 +273,7 @@ The Crucible Hub is the web interface, where people sign in with ORCID. It is op
 ### What you need
 
 - **HTTPS**, set up as in [Putting it on a network](#putting-it-on-a-network): sign-in sets secure cookies and ORCID calls the server back, so plain HTTP does not work with this Hub release.
-- **An ORCID application.** Register Public API credentials at [ORCID developer tools](https://orcid.org/developer-tools) (free, needs a verified email). The redirect URI is the API's, not the Hub's: `https://<your address>/api/v3/auth/hub/callback`, including the port when it is not 443. ORCID accepts only HTTPS redirect URIs and matches them exactly. For a trial, use the [ORCID sandbox](https://sandbox.orcid.org) and its separate accounts.
+- **An ORCID application.** Register Public API credentials at [ORCID developer tools](https://orcid.org/developer-tools) (free, needs a verified email). The redirect URI is the API's, not the Hub's: `https://<your address>/api/v3/oauth/callback/orcid`, including the port when it is not 443. ORCID accepts only HTTPS redirect URIs and matches them exactly. For a trial, use the [ORCID sandbox](https://sandbox.orcid.org) and its separate accounts.
 
 ### 1. Turn on Hub sign-in in the API
 
@@ -378,6 +378,9 @@ openssl rand -hex 32 > secrets/CRUCIBLE_AUTH_PEPPER && chmod 644 secrets/CRUCIBL
 echo "CRUCIBLE_BIND_ADDRESS=0.0.0.0" >> .env
 # 3. ORCID sign-in moved to its own file. If you use it, in .env:
 #    COMPOSE_FILE=compose.yaml:compose.hub.yaml:compose.orcid.yaml
+#    and either add https://<your address>/api/v3/oauth/callback/orcid to your ORCID application's
+#    redirect URIs, or keep the address you registered before with:
+#    ORCID_LEGACY_CALLBACK=true
 ```
 
 Plain HTTP is now refused for any name but `localhost`, so an installation that other machines reached over plain HTTP needs HTTPS first ([Putting it on a network](#putting-it-on-a-network)). Passwords are on by default; set `CRUCIBLE_AUTH_PASSWORD_ENABLED=false` to keep signing in through your provider only. Docker Engine 28 or newer is now required.

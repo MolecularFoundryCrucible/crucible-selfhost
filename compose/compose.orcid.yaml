@@ -15,7 +15,7 @@ services:
           "scopes": "openid",
           "token_endpoint_auth_method": "client_secret_post",
           "registration": "${ORCID_REGISTRATION:-open}",
-          "legacy_callback": true}]
+          "legacy_callback": ${ORCID_LEGACY_CALLBACK:-false}}]
     secrets:
       - OIDC_ORCID_CLIENT_SECRET
 
