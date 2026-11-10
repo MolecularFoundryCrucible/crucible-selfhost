@@ -23,6 +23,9 @@ respond @plain_http_elsewhere "Crucible serves plain HTTP only on localhost. Set
 @compressible not path /{$CRUCIBLE_UPLOAD_BUCKET:crucible-files}/*
 encode @compressible zstd gzip
 
+# The metrics need no sign-in; scrape them from inside the Compose network (api:8000/metrics).
+respond /api/v3/metrics 404
+
 redir /api/v3 /api/v3/ permanent
 redir /hub /hub/ permanent
 
