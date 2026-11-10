@@ -383,6 +383,13 @@ echo "CRUCIBLE_BIND_ADDRESS=0.0.0.0" >> .env
 #    ORCID_LEGACY_CALLBACK=true
 ```
 
+If people already sign in with ORCID on this installation, record their logins right after the upgrade; until then ORCID sign-in refuses them. The first command only reports, the second writes:
+
+```bash
+docker compose run --rm api python -m app.cli identity backfill --issuer https://orcid.org
+docker compose run --rm api python -m app.cli identity backfill --issuer https://orcid.org --commit
+```
+
 Plain HTTP is now refused for any name but `localhost`, so an installation that other machines reached over plain HTTP needs HTTPS first ([Putting it on a network](#putting-it-on-a-network)). Passwords are on by default; set `CRUCIBLE_AUTH_PASSWORD_ENABLED=false` to keep signing in through your provider only. Docker Engine 28 or newer is now required.
 
 Compare your `.env` with `.env.example` after each upgrade for other new settings.

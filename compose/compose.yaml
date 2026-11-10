@@ -22,6 +22,10 @@ x-api: &api
     CRUCIBLE_AUTH_PASSWORD_ENABLED: ${CRUCIBLE_AUTH_PASSWORD_ENABLED:-true}
     CRUCIBLE_AUTH_PASSWORD_REGISTRATION: ${CRUCIBLE_AUTH_PASSWORD_REGISTRATION:-closed}
     CRUCIBLE_AUTH_PEPPER_ID: ${CRUCIBLE_AUTH_PEPPER_ID:-one}
+    # People are found by their recorded logins, which also lets them add another way to sign in.
+    # Only an installation upgraded from 3.x whose people sign in with ORCID sets this to false
+    # until it has run the user_identity backfill (see Upgrading in README.md).
+    CRUCIBLE_AUTH_IDENTITY_LOOKUP: ${CRUCIBLE_AUTH_IDENTITY_LOOKUP:-true}
     # The programs that may sign people in. The nano-crucible command line needs no secret;
     # compose.hub.yaml adds the Hub.
     CRUCIBLE_AUTH_CLIENTS: >-
