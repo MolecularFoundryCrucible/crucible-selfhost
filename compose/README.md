@@ -369,7 +369,7 @@ chmod 644 secrets/*
 echo "COMPOSE_PROFILES=bundled-storage" >> .env
 ```
 
-To 4.0.0, three things change for an existing installation; do them before `docker compose up`:
+To 4.0.0, three things change for an existing installation; do them before `docker compose up` (the [full 3.3.1 to 4.0.0 guide](../../docs/upgrading/3.3-to-4.0.md) also covers clients and removed routes):
 
 ```bash
 # 1. The new secret every installation needs.
