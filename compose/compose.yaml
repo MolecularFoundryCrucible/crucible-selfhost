@@ -163,7 +163,7 @@ services:
   # File storage. Leave the bundled-storage profile out of COMPOSE_PROFILES to use another
   # S3-compatible store instead (README.md, "File storage").
   seaweedfs:
-    image: chrislusf/seaweedfs:4.51
+    image: chrislusf/seaweedfs:4.52
     profiles: [bundled-storage]
     # The image's seaweed user, which owns /data in the image and so in a new volume.
     user: "1000:1000"
@@ -194,7 +194,7 @@ services:
   # One-off: `docker compose run --rm files-backup backup` copies every bucket to the backup folder,
   # `restore` copies it back (README.md, "Backups"). Works with the bundled store or your own.
   files-backup:
-    image: rclone/rclone:1.75.2
+    image: rclone/rclone:1.76.0
     profiles: [backup]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -223,7 +223,7 @@ services:
     restart: "no"
 
   proxy:
-    image: caddy:2.11.7-alpine
+    image: caddy:2.11.9-alpine
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
