@@ -1,20 +1,20 @@
-# Installing Crucible with Docker Compose
+# Installation with Docker Compose
 
-This folder runs Crucible on one machine: PostgreSQL (with pgvector), the Crucible API, SeaweedFS for files, and Caddy as the web server in front. It suits a small group: one lab, a few workstations, an administrator who sets it up once.
+The Docker Compose bundle in this directory runs Crucible on a single host: PostgreSQL (with pgvector), the Crucible API, SeaweedFS for file storage, and Caddy as the reverse proxy. It is intended for small deployments: one lab, a few workstations, and an administrator who sets it up once.
 
-What works: the API (projects, samples, datasets and their metadata, users, access control), file upload, replacement, and download (see [File storage](#file-storage)), sign-in with a password or through a provider such as ORCID or your institution's login (see [Signing in](#signing-in)), the Python client nano-crucible, API keys, and, optionally, the Crucible Hub web interface (see [Adding the Hub](#adding-the-hub)). Not included: the optional printing, ingestion, and proposal integrations, which are off.
+Supported: the API (projects, samples, datasets and their metadata, users, access control), file upload, replacement and download (see [File storage](#file-storage)), authentication with a password or through an identity provider such as ORCID or an institutional login (see [Signing in](#signing-in)), the nano-crucible Python client, API keys, and optionally the Crucible Hub web interface (see [Adding the Hub](#adding-the-hub)). Not included: the optional printing, ingestion and proposal integrations, which are disabled.
 
-As installed, only this machine can reach the server. That is enough to try it and for one person's own use. [Putting it on a network](#putting-it-on-a-network) opens it to a lab, with HTTPS.
+By default, the server is reachable only from the local host. This is sufficient for evaluation and single-user operation. [Putting it on a network](#putting-it-on-a-network) describes access from other hosts over HTTPS.
 
 ## Requirements
 
-- Linux with Docker Engine 28 or newer and the Compose plugin 2.20 or newer (`docker version`, `docker compose version`). Older Docker releases let other machines on the same network segment reach ports published to this machine only.
-- About 2 GB of free memory and a few GB of disk to start; the database grows with your data.
-- A copy of this repository (images are built from it until versioned images are published).
+- Linux with Docker Engine 28 or later and the Compose plugin 2.20 or later (`docker version`, `docker compose version`). Older Docker releases allow other hosts on the same network segment to reach ports published only to the local host.
+- About 2 GB of free memory and a few GB of disk to start; the database grows with the data.
+- A copy of this repository. Images are built from it until versioned images are published.
 
 ## 1. Create the secrets
 
-Secrets are files in `secrets/`, given to the containers as Docker Compose secrets (mounted at `/run/secrets/`, never placed in environment variables). Create them once:
+Secrets are files in `secrets/`, provided to the containers as Docker Compose secrets (mounted at `/run/secrets/`, never placed in environment variables). Create them once:
 
 ```bash
 cd deploy/compose
@@ -26,15 +26,15 @@ openssl rand -hex 16 > secrets/S3_ACCESS_KEY_ID
 chmod 644 secrets/*
 ```
 
-| File | Used for |
+| File | Purpose |
 |---|---|
-| `POSTGRES_PASSWORD` | the PostgreSQL administrator: creates the database the first time, and is used for backups and the database health check; the API never uses it |
-| `PGDB_PW` | the ordinary `crucible` database account the API uses |
-| `CRUCIBLE_SECRET_KEY` | signing browser sessions and list cursors; changing it signs everyone out |
-| `CRUCIBLE_AUTH_PEPPER` | mixed into every password before it is stored, so a copy of the database alone cannot be used to guess passwords; losing it makes every password useless |
-| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | the key pair the API uses with the file store; SeaweedFS takes the same pair. With your own store instead, put that store's key pair here |
+| `POSTGRES_PASSWORD` | PostgreSQL administrator account: creates the database on first start, and is used for backups and the database health check. The API never uses it |
+| `PGDB_PW` | The unprivileged `crucible` database account used by the API |
+| `CRUCIBLE_SECRET_KEY` | Signs list cursors and the short-lived cookies and codes of the sign-in pages. Changing it interrupts sign-ins in progress, not existing sessions |
+| `CRUCIBLE_AUTH_PEPPER` | Mixed into every password before it is stored, so that a copy of the database alone cannot be used to guess passwords. If it is lost, all passwords become unusable |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Key pair the API uses with the file store; SeaweedFS uses the same pair. With an external store, these files hold that store's key pair |
 
-The folder is private to you (`700`); the files are readable (`644`) because the database container reads them as its own user. `secrets/` and `.env` are git-ignored. Keep a copy of the secrets with your backups: a restored database needs the same `PGDB_PW`, `CRUCIBLE_SECRET_KEY` keeps existing sessions valid, and `CRUCIBLE_AUTH_PEPPER` keeps passwords working. Store the pepper apart from the database backups, since its purpose is that one without the other is not enough.
+The directory is accessible only to its owner (`700`); the files are readable by all users (`644`) because the database container reads them as its own user. `secrets/` and `.env` are ignored by git. Back up the secrets: a restored database requires the same `PGDB_PW`, `CRUCIBLE_SECRET_KEY` keeps existing sessions valid, and `CRUCIBLE_AUTH_PEPPER` keeps passwords valid. Store the copy of `CRUCIBLE_AUTH_PEPPER` in a different location from the database backups: the pepper protects stored passwords only while a copy of the database does not come with it.
 
 ## 2. Configure
 
@@ -42,21 +42,21 @@ The folder is private to you (`700`); the files are readable (`644`) because the
 cp .env.example .env
 ```
 
-The defaults serve `http://localhost:8080/api/v3/` to this machine only: Docker listens on `127.0.0.1`, so nothing crosses a network, and Caddy refuses plain HTTP addressed to any other name. Edit `.env` to change the port or the number of API workers. Every setting is explained in `.env.example`.
+The defaults serve `http://localhost:8080/api/v3/` to the local host only: Docker listens on `127.0.0.1`, so no traffic crosses a network, and Caddy refuses plain HTTP addressed to any other name. Edit `.env` to change the port or the number of API workers. Each setting is documented in `.env.example`.
 
-## 3. Start
+## 3. Start the services
 
 ```bash
 docker compose up -d --build --wait
 ```
 
-The first start builds the API image, creates the database and its extensions, creates the schema (the one-time `migrate` service, which the API waits for), starts SeaweedFS with its two buckets, and then starts the API and Caddy. `--wait` returns once everything is healthy. Check:
+On first start, Compose builds the API image, creates the database and its extensions, creates the schema (the one-time `migrate` service, which the API waits for), starts SeaweedFS with its two buckets, and then starts the API and Caddy. `--wait` returns once all services are healthy. Verify:
 
 ```bash
 curl http://localhost:8080/api/v3/health/ready
 ```
 
-It should report `"status":"ok"` and `"schema_state":"current"`. The interactive API documentation is at `http://localhost:8080/api/v3/docs`.
+The response contains `"status":"ok"` and `"schema_state":"current"`. The interactive API documentation is at `http://localhost:8080/api/v3/docs`.
 
 ## 4. Create the first administrator
 
@@ -64,18 +64,18 @@ It should report `"status":"ok"` and `"schema_state":"current"`. The interactive
 docker compose run --rm api python -m app.cli admin create
 ```
 
-It asks for a name, an optional email, an optional ORCID (without one the account gets a Crucible MFID), and an optional username, then asks for confirmation. It prints two things, as one line of JSON:
+The command prompts for a name, an optional email, an optional ORCID (without one, the account is assigned a Crucible MFID) and an optional username, then asks for confirmation. It prints two values as one line of JSON:
 
-- `password_link`: open it in a browser on this machine to choose the administrator's password. It works once, for 24 hours.
-- `api_key`: a key that signs in as the administrator from scripts. Treat it as a password and store it in a password manager.
+- `password_link`: open it in a browser on the server host to set the administrator's password. It is valid once, for 24 hours.
+- `api_key`: an API key that authenticates as the administrator from scripts. Treat it as a password and store it in a password manager.
 
-Run this by hand only; never as an automatic step, where the key and the link would end up in logs. To script it instead, pass every value and `--no-input`:
+Warning: run this command interactively only, never as an automated step, where the key and the link would be written to logs. For non-interactive use, pass every value and `--no-input`:
 
 ```bash
 docker compose run --rm -T api python -m app.cli admin create --no-input --first-name Ada --last-name Lovelace --email ada@example.org
 ```
 
-A second administrator needs `--allow-additional`, so an accidental second run does nothing.
+A second administrator requires `--allow-additional`, so an accidental second run has no effect.
 
 ## 5. Connect the Python client
 
@@ -86,15 +86,15 @@ crucible config set api_key <the key from step 4>
 crucible config show
 ```
 
-Or set `CRUCIBLE_API_URL` and `CRUCIBLE_API_KEY` in the environment. In Python, `CrucibleClient(api_url=..., api_key=...)` takes them directly. With nano-crucible 4.0 or newer, `crucible login` signs in with your password in a browser instead of a key. Uploading files needs nano-crucible 3.3.0 or newer with its default `upload_protocol` (`auto`); older versions, and `upload_protocol` `legacy`, use upload routes that work only with Google Cloud Storage.
+Alternatively, set `CRUCIBLE_API_URL` and `CRUCIBLE_API_KEY` in the environment. In Python, `CrucibleClient(api_url=..., api_key=...)` accepts them directly. With nano-crucible 4.0 or later, `crucible login` authenticates with a password in a browser instead of an API key. File uploads require nano-crucible 3.3.0 or later with the default `upload_protocol` (`auto`); older versions, and `upload_protocol` `legacy`, use upload routes that work only with Google Cloud Storage.
 
-To try it from a second machine before setting up HTTPS, forward the port over SSH and use the same address there: `ssh -L 8080:localhost:8080 you@server`.
+To test from a second host before HTTPS is configured, forward the port over SSH and use the same address there: `ssh -L 8080:localhost:8080 you@server`.
 
 ## Putting it on a network
 
-Other machines reach the server by one name, over HTTPS, with a certificate their browsers and Python already trust. Choose the name once and keep it: the Hub, nano-crucible, sign-in and every upload or download link carry it, and moving to a bigger server later is then only a matter of pointing the name at it.
+Other hosts reach the server by a single name, over HTTPS, with a certificate that browsers and Python already trust. Choose the name once and keep it: the Hub, nano-crucible, sign-in and every upload or download link include it, and migrating to a larger server later only requires pointing the name at the new host.
 
-In `.env`, these change together:
+In `.env`, set these together:
 
 ```bash
 CRUCIBLE_SITE_ADDRESS=crucible.mylab.org
@@ -104,13 +104,13 @@ CRUCIBLE_BIND_ADDRESS=0.0.0.0
 CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
 ```
 
-then `docker compose up -d --wait`. Use the bare name in `CRUCIBLE_SITE_ADDRESS`, without `https://` or a port. With rootless Docker, ports below 1024 need `sudo sysctl net.ipv4.ip_unprivileged_port_start=80`. People working from outside the lab network should come in through your institution's VPN, not through a server opened to the internet, unless collaborators elsewhere need it.
+Then run `docker compose up -d --wait`. Use the bare name in `CRUCIBLE_SITE_ADDRESS`, without `https://` or a port. With rootless Docker, ports below 1024 require `sudo sysctl net.ipv4.ip_unprivileged_port_start=80`. Users outside the lab network should connect through the institution's VPN rather than through a server exposed to the internet, unless external collaborators need access.
 
 ### Certificates
 
-Caddy needs a certificate for that name. Pick the first that fits:
+Caddy requires a certificate for that name. Use the first option that applies:
 
-1. **Your institution issues one.** Most universities and national laboratories control their DNS and run a certificate service; ask IT for a name and a certificate for it. If the service speaks ACME (the protocol Let's Encrypt uses, which many do), Caddy renews by itself. Put the settings IT gives you in `local/global-acme.caddy`:
+1. **Institutional certificate.** Most universities and national laboratories manage their own DNS and run a certificate service; request a name and a certificate for it from IT. If the service supports ACME (the protocol used by Let's Encrypt, which many do), Caddy renews the certificate automatically. Put the settings provided by IT in `local/global-acme.caddy`:
 
    ```
    acme_ca https://acme.myinstitution.edu/directory
@@ -120,21 +120,21 @@ Caddy needs a certificate for that name. Pick the first that fits:
    }
    ```
 
-   If IT hands you certificate files instead, save them as `local/cert.pem` and `local/key.pem` and write `local/site-tls.caddy`, renewing the files yourself before they expire:
+   If IT provides certificate files instead, save them as `local/cert.pem` and `local/key.pem`, write `local/site-tls.caddy` as follows, and renew the files manually before they expire:
 
    ```
    tls /etc/caddy/local/cert.pem /etc/caddy/local/key.pem
    ```
 
-2. **The server is reachable from the internet.** With the name's DNS pointing at it and ports 80 and 443 open, Caddy gets and renews a Let's Encrypt certificate with no further setting.
+2. **Server reachable from the internet.** With the name's DNS record pointing at the server and ports 80 and 443 open, Caddy obtains and renews a Let's Encrypt certificate with no further configuration.
 
-3. **Your own domain, for a server the internet cannot reach.** Let's Encrypt can check the name through its DNS records instead. This needs a Caddy image built with your DNS provider's module ([caddy-dns](https://github.com/caddy-dns), using Caddy's official builder image), a provider token limited to that one zone, and `acme_dns` with it in `local/global-acme.caddy`. This bundle does not ship such an image, and this route has not been tested with it yet. Some routers refuse public names that resolve to local addresses; if the name does not resolve inside the lab, add it to the lab's own DNS.
+3. **Own domain, server not reachable from the internet.** Let's Encrypt can validate the name through its DNS records instead. This requires a Caddy image built with the DNS provider's module ([caddy-dns](https://github.com/caddy-dns), using Caddy's official builder image), a provider token limited to that one zone, and `acme_dns` with that token in `local/global-acme.caddy`. The bundle does not ship such an image, and this option has not been tested with it yet. Some routers refuse public names that resolve to local addresses; if the name does not resolve inside the lab, add it to the lab's DNS.
 
-Files in `local/` are read by Caddy only, are not kept in git, and may hold credentials: keep the folder as private as `secrets/` (`chmod 700 local`). Caddy's own certificate authority (`CRUCIBLE_SITE_ADDRESS=localhost`) is for a trial on one computer only, since every other device would need its root certificate installed.
+Files in `local/` are read only by Caddy, are not tracked in git, and may contain credentials: restrict the directory in the same way as `secrets/` (`chmod 700 local`). Caddy's internal certificate authority (`CRUCIBLE_SITE_ADDRESS=localhost`) is for single-host evaluation only, since every other device would need its root certificate installed.
 
-### Behind your institution's proxy
+### Behind an institutional reverse proxy
 
-When IT's proxy or load balancer already provides HTTPS and forwards to this machine, keep Caddy on plain HTTP, listen where the proxy reaches it, and name the address it forwards for:
+When an institutional reverse proxy or load balancer already terminates HTTPS and forwards to this host, keep Caddy on plain HTTP, listen on an address the proxy can reach, and name the host it forwards for:
 
 ```bash
 CRUCIBLE_BIND_ADDRESS=10.0.0.5
@@ -142,7 +142,7 @@ CRUCIBLE_HTTP_HOSTS=crucible.mylab.org
 CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
 ```
 
-Caddy ignores another proxy's forwarding headers until that proxy is named as trusted, so write its address in `local/global-proxy.caddy`:
+Caddy ignores forwarding headers from another proxy until that proxy is declared trusted. Add its address to `local/global-proxy.caddy`:
 
 ```
 servers {
@@ -150,33 +150,33 @@ servers {
 }
 ```
 
-The proxy must pass `Host`, set `X-Forwarded-For` to the client address and `X-Forwarded-Proto` to `https`, and be the only thing that can reach this port. Without the trusted address, every person appears to come from the proxy, and the sign-in attempt limits would treat them as one. [Using your own reverse proxy](#using-your-own-reverse-proxy) lists the rules for replacing Caddy altogether.
+The proxy must pass `Host`, set `X-Forwarded-For` to the client address and `X-Forwarded-Proto` to `https`, and be the only host that can reach this port. Without the trusted address, all users appear to connect from the proxy, and the sign-in attempt limits treat them as a single client. [Using your own reverse proxy](#using-your-own-reverse-proxy) lists the requirements for replacing Caddy entirely.
 
 ## Signing in
 
-**Passwords** are on, and meant for small installations. An administrator adds each person (`POST /users`, or the Hub's Users page) and gives them a one-time link to choose their password: `POST /users/{user_ref}/password-link`, or on the server `docker compose run --rm api python -m app.cli admin password-link USER`. Passwords need at least 15 characters; guessing is slowed and then locked per account.
+**Passwords** are enabled and intended for small deployments. An administrator creates each user (`POST /users`, or the Hub's Users page) and sends them a one-time link to set their password: `POST /users/{user_ref}/password-link`, or on the server `docker compose run --rm api python -m app.cli admin password-link USER`. Passwords require at least 15 characters; repeated guessing is slowed and then locked per account.
 
-- **Letting people ask for an account:** `CRUCIBLE_AUTH_PASSWORD_REGISTRATION=approval` adds a page at `/api/v3/oauth/register`. Each request waits for an administrator: `docker compose run --rm api python -m app.cli admin pending`, then `admin approve USER` or `admin reject USER` (or the Hub's Users page).
-- **A locked-out administrator:** `admin password-link USER` works for anyone, so a new link gets them back in.
-- **After a breach:** `docker compose run --rm api python -m app.cli auth revoke-passwords --commit` removes every password and ends those sessions, and `auth end-sessions --all --commit` ends everyone's; then issue new links. API keys are separate: revoke them with `DELETE /users/{user_ref}/apikey`.
+- **Self-registration:** `CRUCIBLE_AUTH_PASSWORD_REGISTRATION=approval` adds a page at `/api/v3/oauth/register`. Each request waits for administrator approval: `docker compose run --rm api python -m app.cli admin pending`, then `admin approve USER` or `admin reject USER` (or the Hub's Users page).
+- **Locked-out administrator:** `admin password-link USER` works for any account, so a new link restores access.
+- **Incident response:** `docker compose run --rm api python -m app.cli auth revoke-passwords --commit` removes every password and ends the sessions created with them, and `auth end-sessions --all --commit` ends all sessions; then issue new links. API keys are separate: revoke them with `DELETE /users/{user_ref}/apikey`.
 
-**A provider** (ORCID, or your institution's login through any OpenID Connect service such as Keycloak, Authentik or Entra ID) suits a larger group: nobody manages passwords, and people who leave lose access at the source. Providers need HTTPS. For ORCID, add `compose.orcid.yaml` (see [Adding the Hub](#adding-the-hub)). For others, or several side by side, list them in `CRUCIBLE_AUTH_PROVIDERS` as in `auth-providers.example.json` and [the provider list](../../docs/hub_auth_operations.md#the-provider-list); each entry says whether new people are refused, wait for approval, or get in at once. While both are on, the sign-in page offers the choice. With a provider in place, set `CRUCIBLE_AUTH_PASSWORD_ENABLED=false` unless some people still need passwords.
+**An identity provider** (ORCID, or an institutional login through any OpenID Connect service such as Keycloak, Authentik or Entra ID) suits larger groups: no passwords are managed locally, and users who leave lose access at the source. Identity providers require HTTPS. For ORCID, add `compose.orcid.yaml` (see [Adding the Hub](#adding-the-hub)). For other providers, or several at once, list them in `CRUCIBLE_AUTH_PROVIDERS` as in `auth-providers.example.json` and [the provider list](../../docs/sign_in_operations.md#the-provider-list); each entry specifies whether new users are refused, wait for approval, or are admitted immediately. When passwords and a provider are both enabled, the sign-in page offers the choice. Once a provider is configured, set `CRUCIBLE_AUTH_PASSWORD_ENABLED=false` unless some users still need passwords.
 
 ## File storage
 
-Uploaded files go to SeaweedFS, an S3-compatible store that runs in this bundle, in the `crucible-files` bucket; a copy of each record's metadata (`record.json` and `metadata.json`, written on every change) goes to `crucible-records`. Both live in the `seaweedfs-data` Docker volume (under `/var/lib/docker/volumes/`, or `~/.local/share/docker/volumes/` with rootless Docker) unless you choose a folder, below. Files never pass through the API: clients get short-lived signed URLs from the API and send or fetch the bytes directly, through Caddy at `/crucible-files/`, which forwards them to SeaweedFS unchanged and drops any API key or cookie the client sends along. The records bucket is not reachable from outside. SeaweedFS is on its own internal network that only the API and Caddy join; the Hub cannot reach it.
+Uploaded files are stored in SeaweedFS, an S3-compatible store included in the bundle, in the `crucible-files` bucket; a copy of each record's metadata (`record.json` and `metadata.json`, written on every change) is stored in `crucible-records`. Both reside in the `seaweedfs-data` Docker volume (under `/var/lib/docker/volumes/`, or `~/.local/share/docker/volumes/` with rootless Docker) unless a directory is configured as described below. File content never passes through the API: clients obtain short-lived signed URLs from the API and upload or download the bytes directly, through Caddy at `/crucible-files/`, which forwards them to SeaweedFS unchanged and strips any API key or cookie the client sends. The records bucket is not reachable externally. SeaweedFS runs on a dedicated internal network that only the API and Caddy join; the Hub cannot reach it.
 
-Signed URLs carry the server's address (`CRUCIBLE_PUBLIC_URL`, or `http://localhost:<port>` when it is unset), and the store checks it: everyone, the Python client and the Hub included, must reach the server by that same address. A client that uses another name or port (`http://labbox:8080` against `http://localhost:8080`) gets `SignatureDoesNotMatch` errors on every upload and download, so set `CRUCIBLE_PUBLIC_URL` before people start using the server.
+Signed URLs include the server address (`CRUCIBLE_PUBLIC_URL`, or `http://localhost:<port>` when it is unset), and the store validates it: all clients, including the Python client and the Hub, must reach the server at that same address. A client that uses another name or port (`http://labbox:8080` instead of `http://localhost:8080`) receives `SignatureDoesNotMatch` errors on every upload and download. Set `CRUCIBLE_PUBLIC_URL` before the server is put into use.
 
-To check storage end to end (a signed upload in two parts, a part with the wrong checksum that must be refused, a signed download, the records bucket, and deleting the test file):
+To verify storage end to end (a signed two-part upload, a part with an incorrect checksum that must be refused, a signed download, the records bucket, and deletion of the test file):
 
 ```bash
 docker compose exec api python -m app.cli storage check
 ```
 
-### Keeping the files on a disk of your choice
+### Custom storage directory
 
-To keep the store's data on a particular disk (a large data disk or RAID array) instead of Docker's own folder, create a folder on it owned by uid 1000, the user SeaweedFS runs as, and name it in `.env` before the first start:
+To store the data on a specific disk (a large data disk or RAID array) instead of Docker's default location, create a directory on it owned by uid 1000, the user SeaweedFS runs as, and set it in `.env` before the first start:
 
 ```bash
 sudo mkdir -p /srv/crucible/files
@@ -184,7 +184,7 @@ sudo chown 1000:1000 /srv/crucible/files
 echo "CRUCIBLE_FILES_DIR=/srv/crucible/files" >> .env
 ```
 
-Use a local disk, mounted at boot (by UUID in `/etc/fstab`), not a network share. The folder holds SeaweedFS's own data files, not your uploads one by one; reach the files through Crucible or back them up as below. To move an existing installation's files there:
+Use a local disk mounted at boot (by UUID in `/etc/fstab`), not a network share. The directory holds SeaweedFS's internal data files, not individual uploads; access files through Crucible or back them up as described below. To move an existing installation's files there:
 
 ```bash
 docker compose stop seaweedfs
@@ -193,27 +193,27 @@ echo "CRUCIBLE_FILES_DIR=/srv/crucible/files" >> .env
 docker compose up -d --wait
 ```
 
-Once uploads and downloads work, `docker volume rm crucible_seaweedfs-data` frees the old copy.
+Once uploads and downloads work, `docker volume rm crucible_seaweedfs-data` removes the old copy.
 
-### Replaced files, restoring, and cleanup
+### File versions, restore and cleanup
 
-When a file is replaced, its previous content is kept for 14 days (`CRUCIBLE_FILE_VERSION_RETENTION_DAYS` in `.env`), so a replace can be undone:
+When a file is replaced, its previous content is retained for 14 days (`CRUCIBLE_FILE_VERSION_RETENTION_DAYS` in `.env`), so a replacement can be reverted:
 
 ```bash
 docker compose exec api python -m app.cli files restore <file MFID>
 ```
 
-This makes the newest kept version current again and keeps the content it replaces, so running it again undoes the restore. The `storage-cleanup` service runs `python -m app.cli storage cleanup` every hour: it deletes kept versions older than the grace period that no file uses, and aborts uploads that were started and abandoned. To turn it off, set `CRUCIBLE_STORAGE_CLEANUP_ENABLED=false` in `.env` and run `docker compose up -d --wait`; old versions and abandoned uploads then stay in the bucket. `docker compose exec api python -m app.cli storage cleanup --dry-run` shows what it would do, also while it is off. Keep the grace period at least as long as the oldest database backup you might restore, so the files such a backup points at still exist.
+This makes the newest retained version current and retains the content it replaces, so running it again reverts the restore. The `storage-cleanup` service runs `python -m app.cli storage cleanup` every hour: it deletes retained versions older than the grace period that no file references, and aborts uploads that were started and abandoned. To disable it, set `CRUCIBLE_STORAGE_CLEANUP_ENABLED=false` in `.env` and run `docker compose up -d --wait`; old versions and abandoned uploads then remain in the bucket. `docker compose exec api python -m app.cli storage cleanup --dry-run` reports what it would do, also while cleanup is disabled. Keep the grace period at least as long as the age of the oldest database backup that might be restored, so the files such a backup references still exist.
 
-SeaweedFS frees the disk space of deleted files later, when its background compaction runs (once about 30% of a storage unit is deleted data), and compaction itself needs some free space: keep a margin on the disk and watch it. Deleting a file or a dataset still removes only the database records, not the stored bytes; that comes in a later version.
+SeaweedFS reclaims the disk space of deleted files later, during background compaction (which runs once about 30% of a storage unit is deleted data), and compaction itself requires free space: keep a margin on the disk and monitor it. Deleting a file or a dataset currently removes only the database records, not the stored bytes; removal of the bytes is planned for a later version.
 
-### Sign-in records
+### Authentication record cleanup
 
-The `auth-cleanup` service runs `python -m app.cli auth cleanup` every hour: it deletes expired sign-in transactions, codes and Hub tokens, sign-in history older than a year, and accounts left waiting for approval for 30 days. Set `CRUCIBLE_AUTH_EVENT_RETENTION_DAYS` in `.env` to keep the history longer or shorter. `docker compose exec api python -m app.cli auth cleanup --dry-run` shows what it would remove.
+The `auth-cleanup` service runs `python -m app.cli auth cleanup` every hour: it deletes expired sign-in transactions, codes and Hub tokens, sign-in history older than one year, and accounts left pending approval for 30 days. Set `CRUCIBLE_AUTH_EVENT_RETENTION_DAYS` in `.env` to change the history retention. `docker compose exec api python -m app.cli auth cleanup --dry-run` reports what it would remove.
 
-### Using another S3-compatible store
+### External S3-compatible storage
 
-An institution's object store (or a cloud one) can replace SeaweedFS. It must accept presigned URLs with signed `x-amz-checksum-crc32c` headers and refuse a part whose bytes do not match; `storage check` tests exactly that, so run it before relying on the store. Create two buckets on it, put its key pair in `secrets/S3_ACCESS_KEY_ID` and `secrets/S3_SECRET_ACCESS_KEY`, and in `.env` remove `COMPOSE_PROFILES=bundled-storage` and set:
+An institutional or cloud object store can replace SeaweedFS. It must accept presigned URLs with signed `x-amz-checksum-crc32c` headers and refuse a part whose bytes do not match; `storage check` tests exactly this, so run it before relying on the store. Create two buckets on it, put its key pair in `secrets/S3_ACCESS_KEY_ID` and `secrets/S3_SECRET_ACCESS_KEY`, and in `.env` remove `COMPOSE_PROFILES=bundled-storage` and set:
 
 ```bash
 CRUCIBLE_S3_ENDPOINT_URL=https://s3.myinstitution.org
@@ -224,22 +224,22 @@ CRUCIBLE_UPLOAD_BUCKET=mylab-crucible-files
 CRUCIBLE_RECORD_BUCKET=mylab-crucible-records
 ```
 
-then `docker compose up -d --wait` and `docker compose exec api python -m app.cli storage check`. Browser uploads from the Hub then go to the store's own address, so the upload bucket needs a CORS rule allowing `PUT` and `GET` from the Hub's address with the `x-amz-checksum-crc32c` and `content-type` headers, exposing `ETag`.
+Then run `docker compose up -d --wait` and `docker compose exec api python -m app.cli storage check`. Browser uploads from the Hub then go to the store's own address, so the upload bucket requires a CORS rule that allows `PUT` and `GET` from the Hub's address with the `x-amz-checksum-crc32c` and `content-type` headers and exposes `ETag`.
 
-If the store cannot be served under a path of this site, run it under its own name (for example `files.mylab.org`, with its own certificate) and set `CRUCIBLE_S3_PUBLIC_URL` to that address.
+If the store cannot be served under a path of this site, serve it under its own name (for example `files.mylab.org`, with its own certificate) and set `CRUCIBLE_S3_PUBLIC_URL` to that address.
 
-### Using a Google Cloud Storage bucket
+### Google Cloud Storage
 
-Clients see no difference. Use `CRUCIBLE_STORAGE_BACKEND=gcs`, not Google's S3 interface, which refuses the checksums S3 uploads send. In the Google Cloud project:
+The backend is transparent to clients. Use `CRUCIBLE_STORAGE_BACKEND=gcs`, not Google's S3 interface, which rejects the checksums that S3 uploads send. In the Google Cloud project:
 
-1. Create a files bucket and a records bucket (uniform bucket-level access, public access prevention). On the files bucket, add lifecycle rules that delete replaced content after 14 days and abandoned uploads after one: `{"rule": [{"action": {"type": "Delete"}, "condition": {"daysSinceCustomTime": 14}}, {"action": {"type": "AbortIncompleteMultipartUpload"}, "condition": {"age": 1}}]}`. `files restore` and the version cleanup apply to S3 stores only.
-2. Create a service account with Storage Object Admin on both buckets and Service Account Token Creator on itself, so it can sign URLs without a key.
+1. Create a files bucket and a records bucket (uniform bucket-level access, public access prevention). On the files bucket, add lifecycle rules that delete replaced content after 14 days and abandoned uploads after eight days (an upload session lasts seven): `{"rule": [{"action": {"type": "Delete"}, "condition": {"daysSinceCustomTime": 14}}, {"action": {"type": "AbortIncompleteMultipartUpload"}, "condition": {"age": 8}}]}`. `files restore` and the version cleanup apply to S3 stores only.
+2. Create a service account with Storage Object Admin on both buckets and Service Account Token Creator on itself, so that it can sign URLs without a key.
 3. If the Hub uploads from browsers, add a CORS rule on the files bucket for the Hub's address: `PUT` and `GET`, headers `content-type` and `x-goog-hash`, exposing `ETag`.
 
-Give the server that identity, using the first option that applies:
+Assign that identity to the server, using the first option that applies:
 
-- On Google Cloud (a VM, Cloud Run, GKE): attach the service account; no key. With GKE Workload Identity Federation for the Kubernetes account itself, also set `MULTIPART_UPLOAD_SIGNER` to the service account's email and grant the Kubernetes identity Token Creator on it; the server then acts as that service account for everything.
-- Elsewhere, such as this bundle on a lab server: Workload Identity Federation if your identity provider supports it. Otherwise a key, where your organization allows keys: save it as `secrets/google-credentials.json` and add `compose.override.yaml` next to `compose.yaml`:
+- On Google Cloud (a VM, Cloud Run, GKE): attach the service account; no key is needed. With GKE Workload Identity Federation for the Kubernetes service account itself, also set `MULTIPART_UPLOAD_SIGNER` to the service account's email and grant the Kubernetes identity Token Creator on it; the server then acts as that service account for all operations.
+- Elsewhere, such as this bundle on a lab server: Workload Identity Federation, if the identity provider supports it. Otherwise a key, where the organization permits keys: save it as `secrets/google-credentials.json` and add `compose.override.yaml` next to `compose.yaml`:
 
 ```yaml
 x-google: &google
@@ -264,70 +264,81 @@ CRUCIBLE_UPLOAD_BUCKET=mylab-crucible-files
 CRUCIBLE_RECORD_BUCKET=mylab-crucible-records
 ```
 
-then run `docker compose up -d --wait` and `docker compose exec api python -m app.cli storage check`. `files-backup` copies S3 stores only; protect a Google bucket with Google's tools (object versioning, soft delete, or a copy to another bucket).
+Then run `docker compose up -d --wait` and `docker compose exec api python -m app.cli storage check`. `files-backup` copies S3 stores only; protect a Google bucket with Google's tools (object versioning, soft delete, or a copy to another bucket).
 
 ## Adding the Hub
 
-The Crucible Hub is the web interface, where people sign in with ORCID. It is optional: without it the API, API keys, and the Python client work as before. The Hub is its own Compose project, from the [crucible-hub repository](https://github.com/MolecularFoundryCrucible/crucible-hub/tree/v1.7.1/deploy/compose) at release `v1.7.1`, with its own small database for sign-in sessions. The Hub publishes a ready-made image, `ghcr.io/molecularfoundrycrucible/crucible-hub:1.7.1` (amd64 and arm64), so nothing needs to be built; its `gov.lbl.crucible.api.min-version` label names the oldest Crucible API it works with (3.2.0). It runs on this machine or on a second one; this bundle's Caddy serves it at `/hub/` either way, so people use one address.
+The Crucible Hub is the web interface. Users sign in to it through the API, with a password or an identity provider such as ORCID. It is optional: without it, the API, API keys and the Python client work unchanged. The Hub is a separate Compose project, from the [crucible-hub repository](https://github.com/MolecularFoundryCrucible/crucible-hub/tree/v1.7.1/deploy/compose) at release `v1.7.1`, with its own small database for sign-in sessions. The Hub publishes a prebuilt image, `ghcr.io/molecularfoundrycrucible/crucible-hub:1.7.1` (amd64 and arm64), so no build is required; its `gov.lbl.crucible.api.min-version` label names the oldest compatible Crucible API version (3.2.0). It runs on the same host or on a separate one; in both cases the bundle's Caddy serves it at `/hub/`, so users access a single address.
 
-### What you need
+### Prerequisites
 
-- **HTTPS**, set up as in [Putting it on a network](#putting-it-on-a-network): sign-in sets secure cookies and ORCID calls the server back, so plain HTTP does not work with this Hub release.
-- **An ORCID application.** Register Public API credentials at [ORCID developer tools](https://orcid.org/developer-tools) (free, needs a verified email). The redirect URI is the API's, not the Hub's: `https://<your address>/api/v3/oauth/callback/orcid`, including the port when it is not 443. ORCID accepts only HTTPS redirect URIs and matches them exactly. For a trial, use the [ORCID sandbox](https://sandbox.orcid.org) and its separate accounts.
+- **HTTPS**, configured as in [Putting it on a network](#putting-it-on-a-network): sign-in sets secure cookies, so this Hub release does not work over plain HTTP.
 
-### 1. Turn on Hub sign-in in the API
+### 1. Enable Hub sign-in in the API
 
-Create the two secrets (the first is shared with the Hub; the second comes from ORCID):
+Create the secret shared by the API and the Hub:
 
 ```bash
 openssl rand -hex 32 > secrets/HUB_AUTH_CLIENT_SECRET
-printf '%s' 'your-orcid-client-secret' > secrets/ORCID_CLIENT_SECRET
 chmod 644 secrets/*
 ```
 
 In `.env`:
 
 ```bash
-COMPOSE_FILE=compose.yaml:compose.hub.yaml:compose.orcid.yaml
-# The address people use: no /api/v3, no trailing slash, and the port if it is not 443.
+COMPOSE_FILE=compose.yaml:compose.hub.yaml
+# Public address: no /api/v3, no trailing slash; include the port if it is not 443.
 CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
+```
+
+`compose.hub.yaml` adds the Hub to the client applications allowed to sign users in, alongside the nano-crucible command-line interface. Users then sign in to the Hub with their password.
+
+**ORCID.** To offer ORCID as well, register Public API credentials at [ORCID developer tools](https://orcid.org/developer-tools) (free; requires a verified email), with the redirect URI `https://<your address>/api/v3/oauth/callback/orcid`, including the port when it is not 443. ORCID accepts only HTTPS and requires an exact match of the address. For evaluation, use the [ORCID sandbox](https://sandbox.orcid.org) and its separate accounts. Then:
+
+```bash
+printf '%s' 'your-orcid-client-secret' > secrets/ORCID_CLIENT_SECRET
+chmod 644 secrets/*
+```
+
+```bash
+COMPOSE_FILE=compose.yaml:compose.hub.yaml:compose.orcid.yaml
 ORCID_CLIENT_ID=APP-XXXXXXXXXXXXXXXX
 # For the ORCID sandbox:
 # ORCID_ISSUER=https://sandbox.orcid.org
 ```
 
-`compose.hub.yaml` adds the Hub to the programs allowed to sign people in (`CRUCIBLE_AUTH_CLIENTS`), with the secret above (mounted as `OAUTH_HUB_CLIENT_SECRET`), beside the nano-crucible command line, which needs no secret. `compose.orcid.yaml` writes the ORCID settings into the API's explicit provider list, `CRUCIBLE_AUTH_PROVIDERS`; leave it out to sign in with passwords only. To change or add providers, see [the provider list](../../docs/hub_auth_operations.md#the-provider-list) and `auth-providers.example.json`.
+The sign-in page then offers both methods. For other providers, or several, see [the provider list](../../docs/sign_in_operations.md#the-provider-list) and `auth-providers.example.json`.
 
-Then `docker compose up -d --wait`. Until the Hub runs, `/hub/` answers `502`.
+Then run `docker compose up -d --wait`. Until the Hub is running, `/hub/` returns `502`.
 
-### 2a. The Hub on this machine
+### 2a. Hub on the same host
 
 ```bash
 git clone --branch v1.7.1 https://github.com/MolecularFoundryCrucible/crucible-hub.git
 cd crucible-hub/deploy/compose
 ```
 
-Follow its `README.md`: copy this bundle's `secrets/HUB_AUTH_CLIENT_SECRET` to its `secrets/hub_auth_client_secret`, create its other secrets, copy `example.env` to `.env`, and set `HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.7.1`, `HUB_PUBLIC_ORIGIN=https://crucible.mylab.org`, and `HUB_AUTH_PUBLIC_API_URL=https://crucible.mylab.org/api/v3`. The defaults there join this bundle's `crucible` network and call the API at `http://api:8000`. Start it after this bundle, which creates the network, with `docker compose pull hub hub-setup` and then `docker compose up -d --wait`. `https://crucible.mylab.org/hub/health` then answers `{"status":"ok","sessions":"ok"}`.
+Follow its `README.md`: copy the bundle's `secrets/HUB_AUTH_CLIENT_SECRET` to its `secrets/hub_auth_client_secret`, create its other secrets, copy `example.env` to `.env`, and set `HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.7.1`, `HUB_PUBLIC_ORIGIN=https://crucible.mylab.org`, and `HUB_AUTH_PUBLIC_API_URL=https://crucible.mylab.org/api/v3`. Its defaults join the bundle's `crucible` network and call the API at `http://api:8000`. Start it after the bundle, which creates the network, with `docker compose pull hub hub-setup` followed by `docker compose up -d --wait`. `https://crucible.mylab.org/hub/health` then returns `{"status":"ok","sessions":"ok"}`.
 
-### 2b. The Hub on a second machine
+### 2b. Hub on a separate host
 
-On the second machine, clone the same release and create the Hub's secrets as in 2a (copying `HUB_AUTH_CLIENT_SECRET` from this machine). In its `.env`, comment out the same-machine block and use the separate-machine one: `COMPOSE_FILE=compose.yaml:compose.published.yaml`, `HUB_BIND_ADDRESS` set to the address this machine reaches it on, and `CRUCIBLE_API_BASE_URL=https://crucible.mylab.org/api/v3`; set `HUB_IMAGE`, `HUB_PUBLIC_ORIGIN`, and `HUB_AUTH_PUBLIC_API_URL` as in 2a. Start it with `docker compose pull hub hub-setup` and `docker compose up -d --wait`. Then, in this bundle's `.env`, set `CRUCIBLE_HUB_UPSTREAM=<that address>:3000` (an address and port, without `http://`) and run `docker compose up -d --wait`.
+On the second host, clone the same release and create the Hub's secrets as in 2a (copying `HUB_AUTH_CLIENT_SECRET` from the API host). In its `.env`, comment out the same-machine block and use the separate-machine block: `COMPOSE_FILE=compose.yaml:compose.published.yaml`, `HUB_BIND_ADDRESS` set to the address on which the API host reaches it, and `CRUCIBLE_API_BASE_URL=https://crucible.mylab.org/api/v3`; set `HUB_IMAGE`, `HUB_PUBLIC_ORIGIN`, and `HUB_AUTH_PUBLIC_API_URL` as in 2a. Start it with `docker compose pull hub hub-setup` and `docker compose up -d --wait`. Then, in the bundle's `.env` on the API host, set `CRUCIBLE_HUB_UPSTREAM=<that address>:3000` (an address and port, without `http://`) and run `docker compose up -d --wait`.
 
-Caddy talks to the Hub in plain HTTP, and that link carries sign-in cookies, so it must be encrypted: put both machines on a WireGuard or Tailscale network and use the Hub's address there, and let only this machine reach the Hub's port. A shared LAN alone is not enough.
+Warning: Caddy connects to the Hub over plain HTTP, and that connection carries sign-in cookies, so it must be encrypted. Place both hosts on a WireGuard or Tailscale network, use the Hub's address on that network, and allow only the API host to reach the Hub's port. A shared LAN alone is not sufficient.
 
-### Traffic inside the installation
+### Internal traffic
 
-HTTPS ends at Caddy; behind it, Caddy, the API, and the Hub talk plain HTTP, and those connections carry API keys, sign-in tokens and cookies, and, when the Hub exchanges a sign-in, the shared client secret. On one machine this is the usual setup and is safe as configured here: the database is on an internal network that only the API joins (the Hub cannot reach it), every container drops the Linux capabilities that would let it intercept its neighbours' traffic and cannot gain new privileges, and nothing else should be attached to the `crucible` network. It is not "zero trust", where every connection is encrypted and authenticated (NIST SP 800-207). Any connection that leaves the machine needs encryption: the Hub refuses plain HTTP to the API except to a container name or a private address, and the link to a Hub on a second machine must be an encrypted private network as above. Labs that want encryption inside the machine too can have Caddy issue internal certificates (`tls internal`) for an extra HTTPS address in front of the API, have the Hub call that address, and give the Hub Caddy's root certificate through `NODE_EXTRA_CA_CERTS`; this needs no code change but is not set up here.
+HTTPS terminates at Caddy. Behind it, Caddy, the API and the Hub communicate over plain HTTP, and those connections carry API keys, sign-in tokens and cookies, and, when the Hub exchanges a sign-in, the shared client secret. On a single host this is the usual setup and is safe as configured here: the database is on an internal network that only the API joins (the Hub cannot reach it), every container drops the Linux capabilities that would allow it to intercept other containers' traffic and cannot gain new privileges, and nothing else should be attached to the `crucible` network. This is not a zero-trust architecture, in which every connection is encrypted and authenticated (NIST SP 800-207). Any connection that leaves the host requires encryption: the Hub refuses plain HTTP to the API except to a container name or a private address, and the connection to a Hub on a separate host must use an encrypted private network as described above. To encrypt traffic within the host as well, Caddy can issue internal certificates (`tls internal`) for an additional HTTPS address in front of the API, the Hub can call that address, and the Hub can be given Caddy's root certificate through `NODE_EXTRA_CA_CERTS`; this requires no code change but is not configured here.
 
 ### Removing the Hub
 
-Stop the Hub project (`docker compose down` in its folder; add `-v` to delete its session database), remove `COMPOSE_FILE` (and `CRUCIBLE_HUB_UPSTREAM`, if you set it) from this bundle's `.env`, and run `docker compose up -d --wait`. The API's data is untouched; `/hub/` answers `404`.
+Stop the Hub project (`docker compose down` in its directory; add `-v` to delete its session database), remove `COMPOSE_FILE` (and `CRUCIBLE_HUB_UPSTREAM`, if set) from the bundle's `.env`, and run `docker compose up -d --wait`. The API's data is unaffected; `/hub/` returns `404`.
 
 ## Backups
 
-Back up the database, the stored files, and the `secrets/` folder. A database backup contains every user's API key, so treat it like the secrets: encrypt it, and keep it in a private folder outside the repository. Back up the database first and the files second: a file uploaded in between is then only an unused extra, while the other order could leave a record pointing at bytes the backup lacks.
+Back up the database, the stored files and the `secrets/` directory. Warning: a database backup contains every user's API key. Treat it like the secrets: encrypt it, and keep it in a private directory outside the repository. Back up the database before the files: a file uploaded in between is then only an unreferenced extra, whereas the reverse order could leave a record referencing content missing from the backup.
 
-The commands below encrypt the database backup with [age](https://age-encryption.org). Make a key pair once with `age-keygen -o ~/crucible-backup-key.txt`, keep that file somewhere other than the backups (a password manager, a second disk), and use the public key it prints (`age1...`) as the recipient. Anyone with the backup but not the key file learns nothing.
+The commands below encrypt the database backup with [age](https://age-encryption.org). Create a key pair once with `age-keygen -o ~/crucible-backup-key.txt`, store that file separately from the backups (a password manager, a second disk), and use the public key it prints (`age1...`) as the recipient. Without the key file, the backup reveals nothing.
 
 ```bash
 mkdir -p ~/crucible-backups/files && chmod 700 ~/crucible-backups
@@ -335,9 +346,9 @@ mkdir -p ~/crucible-backups/files && chmod 700 ~/crucible-backups
 docker compose run --rm --user "$(id -u):$(id -g)" files-backup
 ```
 
-`files-backup` (rclone) copies both buckets through the S3 interface into `~/crucible-backups/files/` (or `CRUCIBLE_BACKUP_DIR/files/`; create that `files` folder yourself first, or Docker creates it owned by root and the copy cannot write to it), with the store running, so uploads continue. Each run copies only files not yet in the backup, and never deletes from it. Stored files are never changed in place, so this incremental copy is all a backup needs. The copy is plain files: `crucible-files/<dataset>/_files/<upload id>` for uploads (their names are in the database) and `crucible-records/<id>/record.json` for the metadata copies. Back the folder up further with your usual tools (restic, rsync, a tape robot). With rootless Docker, leave out `--user`. The same command backs up your own S3 store when you use one instead of SeaweedFS.
+`files-backup` (rclone) copies both buckets through the S3 interface into `~/crucible-backups/files/` (or `CRUCIBLE_BACKUP_DIR/files/`; create that `files` directory first, otherwise Docker creates it owned by root and the copy cannot write to it) while the store is running, so uploads continue. Each run copies only files not yet in the backup and never deletes from it. Stored files are never modified in place, so this incremental copy is a complete backup. The copy consists of plain files: `crucible-files/<dataset>/_files/<upload id>` for uploads (their names are in the database) and `crucible-records/<id>/record.json` for the metadata copies. Back up the directory further with standard tools (restic, rsync, a tape robot). With rootless Docker, omit `--user`. The same command backs up an external S3 store when one is used instead of SeaweedFS.
 
-To restore into a running installation (this replaces its database, and adds the backed-up files to the store). Stop `storage-cleanup` as well as `api`: while the database is half restored, the cleanup could take files as unused and delete them.
+To restore into a running installation (this replaces its database and adds the backed-up files to the store), stop `storage-cleanup` as well as `api`: while the database is partially restored, the cleanup could treat files as unreferenced and delete them.
 
 ```bash
 docker compose stop api storage-cleanup
@@ -346,9 +357,9 @@ docker compose run --rm --user "$(id -u):$(id -g)" files-backup restore
 docker compose up -d --wait
 ```
 
-`up` runs the `migrate` step again, which brings a backup from an older version up to date before the API starts. A backup from a newer version than the code cannot be restored; upgrade the code first.
+`up` runs the `migrate` step again, which upgrades a backup from an older version before the API starts. A backup from a newer version than the code cannot be restored; upgrade the code first.
 
-To move to a new machine, copy the repository, `.env`, `secrets/`, and the backup; start once (step 3), then restore.
+To migrate to a new host, copy the repository, `.env`, `secrets/` and the backup; start once (step 3), then restore.
 
 ## Upgrading
 
@@ -358,49 +369,19 @@ git pull
 docker compose up -d --build --wait
 ```
 
-The `migrate` step applies any database changes before the new API starts. If one fails, the database stays at the last change that completed, the API does not start, and `docker compose logs migrate` says why; fix the cause and run the same command again, or restore the backup.
+The `migrate` step applies pending database migrations before the new API starts. If a migration fails, the database remains at the last completed migration, the API does not start, and `docker compose logs migrate` reports the cause; fix it and run the same command again, or restore the backup.
 
-From a version without file storage, create the two storage secrets and add the storage profile before `docker compose up`:
+An installation created before 4.0.0 requires additional steps: see [Upgrading from 3.3.1 to 4.0.0](../../docs/upgrading/3.3-to-4.0.md#docker-compose).
 
-```bash
-openssl rand -hex 16 > secrets/S3_ACCESS_KEY_ID
-openssl rand -hex 32 > secrets/S3_SECRET_ACCESS_KEY
-chmod 644 secrets/*
-echo "COMPOSE_PROFILES=bundled-storage" >> .env
-```
-
-To 4.0.0, three things change for an existing installation; do them before `docker compose up` (the [full 3.3.1 to 4.0.0 guide](../../docs/upgrading/3.3-to-4.0.md) also covers clients and removed routes):
-
-```bash
-# 1. The new secret every installation needs.
-openssl rand -hex 32 > secrets/CRUCIBLE_AUTH_PEPPER && chmod 644 secrets/CRUCIBLE_AUTH_PEPPER
-# 2. The server now listens on this machine only. If other machines use it:
-echo "CRUCIBLE_BIND_ADDRESS=0.0.0.0" >> .env
-# 3. ORCID sign-in moved to its own file. If you use it, in .env:
-#    COMPOSE_FILE=compose.yaml:compose.hub.yaml:compose.orcid.yaml
-#    and either add https://<your address>/api/v3/oauth/callback/orcid to your ORCID application's
-#    redirect URIs, or keep the address you registered before with:
-#    ORCID_LEGACY_CALLBACK=true
-```
-
-If people already sign in with ORCID on this installation, record their logins right after the upgrade; until then ORCID sign-in refuses them. The first command only reports, the second writes:
-
-```bash
-docker compose run --rm api python -m app.cli identity backfill --issuer https://orcid.org
-docker compose run --rm api python -m app.cli identity backfill --issuer https://orcid.org --commit
-```
-
-Plain HTTP is now refused for any name but `localhost`, so an installation that other machines reached over plain HTTP needs HTTPS first ([Putting it on a network](#putting-it-on-a-network)). Passwords are on by default; set `CRUCIBLE_AUTH_PASSWORD_ENABLED=false` to keep signing in through your provider only. Docker Engine 28 or newer is now required.
-
-Compare your `.env` with `.env.example` after each upgrade for other new settings.
+After each upgrade, compare `.env` with `.env.example` for other new settings.
 
 ## Stopping and removing
 
-`docker compose down` stops everything and keeps the data. With the Hub on this machine, stop the Hub project first: the shared `crucible` network cannot be removed while it is attached. `docker compose down -v` also deletes the database, the stored files (unless they are in a `CRUCIBLE_FILES_DIR` folder, which stays), and the certificates; there is no undo.
+`docker compose down` stops all services and keeps the data. With the Hub on the same host, stop the Hub project first: the shared `crucible` network cannot be removed while the Hub is attached. Warning: `docker compose down -v` also deletes the database, the stored files (unless they are in a `CRUCIBLE_FILES_DIR` directory, which is kept) and the certificates; this cannot be undone.
 
-## Using a different way to provide secrets
+## Alternative secret sources
 
-Crucible reads each secret from exactly one of: a file named after it in the secrets directory (`/run/secrets` by default, or `CRUCIBLE_SECRETS_DIR`), a file named by `NAME_FILE`, or the `NAME` environment variable. Giving one secret two ways stops the server with a message naming it. So any tool that writes secrets as files works without changes:
+Crucible reads each secret from exactly one of: a file named after it in the secrets directory (`/run/secrets` by default, or `CRUCIBLE_SECRETS_DIR`), a file named by `NAME_FILE`, or the `NAME` environment variable. Providing one secret through two sources stops the server with an error that names it. Any tool that writes secrets as files therefore works without changes:
 
 - systemd: `LoadCredential=PGDB_PW:/etc/crucible/pgdb_pw` and `CRUCIBLE_SECRETS_DIR=%d`.
 - Kubernetes: a Secret mounted as a volume at `/run/secrets`, or an external manager (Vault, AWS, Azure, Google) through the Secrets Store CSI Driver or the External Secrets Operator.
@@ -408,21 +389,22 @@ Crucible reads each secret from exactly one of: a file named after it in the sec
 
 ## Using your own reverse proxy
 
-Caddy can be replaced by any reverse proxy. The rules:
+Caddy can be replaced by any reverse proxy that meets these requirements:
 
-- `/api/v3/` goes to the API (`api:8000` inside Compose, or the API container's port) with the `/api/v3` prefix removed; the API serves its documentation under that prefix (`API_PATH=api/v3`).
-- Pass `Host`, `X-Forwarded-For` (set to the client address, not appended to what the client sent), and `X-Forwarded-Proto`. The API trusts forwarding headers from any address (`FORWARDED_ALLOW_IPS="*"`), so it must not be reachable except through the proxy.
-- Allow request bodies of a few megabytes and read timeouts of at least 60 seconds for large metadata requests.
-- `/crucible-files/` goes to SeaweedFS (`seaweedfs:8333`) with the path and `Host` unchanged, since the store checks the signed URL against both. Remove the `Authorization` and `Cookie` request headers, allow request bodies of 64 MB (one upload part) and read timeouts of a few minutes, and do not compress the responses. Add `Content-Security-Policy: sandbox; default-src 'none'`, `X-Content-Type-Options: nosniff`, and `Cross-Origin-Resource-Policy: same-site` to them, so a downloaded file never runs as a page of the site and other sites cannot embed it ([web.dev, "Securely hosting user data"](https://web.dev/articles/securely-hosting-user-data)); current Chrome and Firefox still show PDFs and images in the browser with these headers. Do not route the records bucket.
-- With the Hub: `/hub/` goes to the Hub (`hub:3000`) with the prefix kept. `X-Forwarded-For` must again be set, not appended: the Hub limits sign-in attempts per client address and trusts one proxy (`HUB_TRUSTED_PROXY_HOPS=1`). Caddy also caps `/api/v3/auth/hub/` requests at 8 KB and waits at most 20 seconds for the API there.
+- `/api/v3/` routes to the API (`api:8000` inside Compose, or the API container's port) with the `/api/v3` prefix removed; the API serves its documentation under that prefix (`API_PATH=api/v3`).
+- Pass `Host`, `X-Forwarded-For` (set to the client address, not appended to the value the client sent), and `X-Forwarded-Proto`. The API trusts forwarding headers from any address (`FORWARDED_ALLOW_IPS="*"`), so it must be reachable only through the proxy.
+- Allow request bodies of 10 MB, 20 MB for thumbnails (the API's own limits), and read timeouts of at least 60 seconds.
+- Limit the sign-in routes, `/api/v3/oauth/` and `/api/v3/auth/hub/`, to 8 KB bodies and a 20 second timeout, as Caddy does here.
+- `/crucible-files/` routes to SeaweedFS (`seaweedfs:8333`) with the path and `Host` unchanged, since the store validates the signed URL against both. Remove the `Authorization` and `Cookie` request headers, allow request bodies of 64 MB (one upload part) and read timeouts of a few minutes, and do not compress responses. Add `Content-Security-Policy: sandbox; default-src 'none'`, `X-Content-Type-Options: nosniff`, and `Cross-Origin-Resource-Policy: same-site` to the responses, so that a downloaded file never runs as a page of the site and other sites cannot embed it ([web.dev, "Securely hosting user data"](https://web.dev/articles/securely-hosting-user-data)); current Chrome and Firefox still display PDFs and images in the browser with these headers. Do not route the records bucket.
+- With the Hub: `/hub/` routes to the Hub (`hub:3000`) with the prefix kept. `X-Forwarded-For` must again be set, not appended: the Hub limits sign-in attempts per client address and trusts one proxy (`HUB_TRUSTED_PROXY_HOPS=1`).
 
-An nginx example, for nginx running as a service in the same compose project (remove the `proxy` service and publish nginx instead):
+Example nginx configuration, for nginx running as a service in the same Compose project (remove the `proxy` service and publish nginx instead):
 
 ```nginx
 server {
     listen 80;
     server_name crucible.mylab.org;
-    client_max_body_size 16m;
+    client_max_body_size 20m;
 
     location = /api/v3 { return 301 /api/v3/; }
 
@@ -461,15 +443,15 @@ server {
 
 ## Troubleshooting
 
-- `/hub/` answers `502`: the Hub is not running, or `CRUCIBLE_HUB_UPSTREAM` does not point at it. On one machine, check `docker compose ps` in the Hub's folder; it must have joined the `crucible` network.
-- `network crucible declared as external, but could not be found` when starting the Hub: start this bundle first; it creates the network.
+- `/hub/` returns `502`: the Hub is not running, or `CRUCIBLE_HUB_UPSTREAM` does not point at it. On a single host, run `docker compose ps` in the Hub's directory; the Hub must have joined the `crucible` network.
+- `network crucible declared as external, but could not be found` when starting the Hub: start the bundle first; it creates the network.
 
-- `docker compose ps -a` shows each service; `docker compose logs api migrate db seaweedfs` shows what happened.
-- Uploads and download links fail with `503` ("Storage is temporarily unavailable") after an upgrade, and `docker compose ps` shows no `seaweedfs`: `.env` lacks `COMPOSE_PROFILES=bundled-storage` (see [Upgrading](#upgrading)).
-- `seaweedfs` is unhealthy and its log says `permission denied` under `/data`: the folder in `CRUCIBLE_FILES_DIR` does not belong to uid 1000 (Docker creates a missing folder owned by root). Run `sudo chown -R 1000:1000` on it and `docker compose up -d --wait`.
-- `SignatureDoesNotMatch` on uploads or downloads: the client reached the server by another address than `CRUCIBLE_PUBLIC_URL` (see [File storage](#file-storage)), or a proxy in front changed the path or `Host`.
+- `docker compose ps -a` lists each service; `docker compose logs api migrate db seaweedfs` shows their logs.
+- Uploads and download links fail with `503` ("Storage is temporarily unavailable") after an upgrade, and `docker compose ps` shows no `seaweedfs`: `.env` lacks `COMPOSE_PROFILES=bundled-storage` (see [Upgrading from 3.3.1 to 4.0.0](../../docs/upgrading/3.3-to-4.0.md#docker-compose)).
+- `seaweedfs` is unhealthy and its log reports `permission denied` under `/data`: the directory in `CRUCIBLE_FILES_DIR` is not owned by uid 1000 (Docker creates a missing directory owned by root). Run `sudo chown -R 1000:1000` on it, then `docker compose up -d --wait`.
+- `SignatureDoesNotMatch` on uploads or downloads: the client reached the server at an address other than `CRUCIBLE_PUBLIC_URL` (see [File storage](#file-storage)), or an upstream proxy changed the path or `Host`.
 - `bind source path does not exist: .../secrets/<NAME>`: a secret file is missing; create it as in step 1.
-- `Missing required settings: ...` or `... is given more than one way ...`: the API names the setting; fix `.env` or `secrets/` and run `docker compose up -d --wait` again.
-- The database refuses the password after you changed `secrets/PGDB_PW`: the password is set only when the database is first created. Set the same password inside the database (`docker compose exec db psql -U postgres -c '\password crucible'`, which asks for it without showing it), then `docker compose up -d --force-recreate --wait` so every service reads the new file.
-- On Fedora, RHEL, Rocky, or AlmaLinux with SELinux enforcing, `permission denied` reading `/run/secrets/...`: label the folder for containers with `chcon -Rt container_file_t secrets`.
-- `crucible: /run/secrets/PGDB_PW is missing, empty, or not readable` in the `db` logs, and `db` never becoming healthy: the files in `secrets/` must exist and be readable (`chmod 644 secrets/*`). The database's first start was interrupted, so start over: `docker compose down -v`, then `docker compose up -d --build --wait`.
+- `Missing required settings: ...` or `... is given more than one way ...`: the API names the setting; correct `.env` or `secrets/` and run `docker compose up -d --wait` again.
+- The database rejects the password after `secrets/PGDB_PW` was changed: the password is set only when the database is first created. Set the same password inside the database (`docker compose exec db psql -U postgres -c '\password crucible'`, which prompts for it without echoing it), then run `docker compose up -d --force-recreate --wait` so every service reads the new file.
+- On Fedora, RHEL, Rocky or AlmaLinux with SELinux enforcing, `permission denied` when reading `/run/secrets/...`: label the directory for containers with `chcon -Rt container_file_t secrets`.
+- `crucible: /run/secrets/PGDB_PW is missing, empty, or not readable` in the `db` logs, and `db` never becomes healthy: the files in `secrets/` must exist and be readable (`chmod 644 secrets/*`). The database's first start was interrupted, so start over: `docker compose down -v`, then `docker compose up -d --build --wait`.
