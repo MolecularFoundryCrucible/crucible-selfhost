@@ -66,7 +66,7 @@ docker compose run --rm api python -m app.cli admin create
 
 The command prompts for a name, an optional email, an optional ORCID (without one, the account is assigned a Crucible MFID) and an optional username, then asks for confirmation. It prints two values as one line of JSON:
 
-- `password_link`: open it in a browser on the server host to set the administrator's password. It is valid once, for 24 hours.
+- `password_link`: open it in a browser on the server host to set the administrator's password. It is valid once, for 24 hours. On a server without a browser, forward the port from another computer first (`ssh -L 8080:localhost:8080 you@server`) and open the link there.
 - `api_key`: an API key that authenticates as the administrator from scripts. Treat it as a password and store it in a password manager.
 
 Warning: run this command interactively only, never as an automated step, where the key and the link would be written to logs. For non-interactive use, pass every value and `--no-input`:
@@ -268,11 +268,14 @@ Then run `docker compose up -d --wait` and `docker compose exec api python -m ap
 
 ## Adding the Hub
 
-The Crucible Hub is the web interface. Users sign in to it through the API, with a password or an identity provider such as ORCID. It is optional: without it, the API, API keys and the Python client work unchanged. The Hub is a separate Compose project, from the [crucible-hub repository](https://github.com/MolecularFoundryCrucible/crucible-hub/tree/v1.7.1/deploy/compose) at release `v1.7.1`, with its own small database for sign-in sessions. The Hub publishes a prebuilt image, `ghcr.io/molecularfoundrycrucible/crucible-hub:1.7.1` (amd64 and arm64), so no build is required; its `gov.lbl.crucible.api.min-version` label names the oldest compatible Crucible API version (3.2.0). It runs on the same host or on a separate one; in both cases the bundle's Caddy serves it at `/hub/`, so users access a single address.
+The Crucible Hub is the web interface. Users sign in to it through the API, with a password or an identity provider such as ORCID. It is optional: without it, the API, API keys and the Python client work unchanged. The Hub is a separate Compose project, from the [crucible-hub repository](https://github.com/MolecularFoundryCrucible/crucible-hub/tree/v1.8.0-alpha.1/deploy/compose) at `v1.8.0-alpha.1`, the pre-release that matches this API version, with its own small database for sign-in sessions. It publishes a prebuilt image, `ghcr.io/molecularfoundrycrucible/crucible-hub:1.8.0-alpha.1` (amd64 and arm64), so no build is required. Hub 1.8 signs users in through the API's `/oauth` routes and therefore requires API 4.0.0 or later. The Hub runs on the same host or on a separate one; in both cases the bundle's Caddy serves it at `/hub/`, so users access a single address.
 
 ### Prerequisites
 
-- **HTTPS**, configured as in [Putting it on a network](#putting-it-on-a-network): sign-in sets secure cookies, so this Hub release does not work over plain HTTP.
+One of:
+
+- **HTTPS**, configured as in [Putting it on a network](#putting-it-on-a-network). This is required for any installation that other hosts use: sign-in sets secure cookies.
+- **A single-host evaluation at `http://localhost:8080`**, the bundle's default address. The Hub accepts plain HTTP only on `localhost`. Open it at exactly the configured address: `localhost` and `127.0.0.1` are not interchangeable. From another computer, forward the port first (`ssh -L 8080:localhost:8080 you@server`).
 
 ### 1. Enable Hub sign-in in the API
 
@@ -288,6 +291,7 @@ In `.env`:
 ```bash
 COMPOSE_FILE=compose.yaml:compose.hub.yaml
 # Public address: no /api/v3, no trailing slash; include the port if it is not 443.
+# Leave it unset for a single-host evaluation at http://localhost:8080.
 CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
 ```
 
@@ -313,12 +317,41 @@ Then run `docker compose up -d --wait`. Until the Hub is running, `/hub/` return
 
 ### 2a. Hub on the same host
 
+Clone the Hub next to this repository and create its secrets. The first one is the secret created in step 1:
+
 ```bash
-git clone --branch v1.7.1 https://github.com/MolecularFoundryCrucible/crucible-hub.git
+git clone --branch v1.8.0-alpha.1 https://github.com/MolecularFoundryCrucible/crucible-hub.git
 cd crucible-hub/deploy/compose
+mkdir -p secrets && chmod 700 secrets
+cp /path/to/crucible-api/deploy/compose/secrets/HUB_AUTH_CLIENT_SECRET secrets/hub_auth_client_secret
+printf 'k1:%s' "$(openssl rand 32 | basenc --base64url | tr -d '=\n')" > secrets/hub_session_keys
+openssl rand -base64 32 | tr -d '\n' > secrets/hub_session_database_password
+openssl rand -base64 32 | tr -d '\n' > secrets/hub_db_admin_password
+chmod 444 secrets/hub_*
+cp example.env .env
 ```
 
-Follow its `README.md`: copy the bundle's `secrets/HUB_AUTH_CLIENT_SECRET` to its `secrets/hub_auth_client_secret`, create its other secrets, copy `example.env` to `.env`, and set `HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.7.1`, `HUB_PUBLIC_ORIGIN=https://crucible.mylab.org`, and `HUB_AUTH_PUBLIC_API_URL=https://crucible.mylab.org/api/v3`. Its defaults join the bundle's `crucible` network and call the API at `http://api:8000`. Start it after the bundle, which creates the network, with `docker compose pull hub hub-setup` followed by `docker compose up -d --wait`. `https://crucible.mylab.org/hub/health` then returns `{"status":"ok","sessions":"ok"}`.
+In the Hub's `.env`, set:
+
+```bash
+HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.8.0-alpha.1
+HUB_PUBLIC_ORIGIN=https://crucible.mylab.org
+HUB_AUTH_PUBLIC_API_URL=https://crucible.mylab.org/api/v3
+# Single-host evaluation with the bundle's defaults:
+# HUB_PUBLIC_ORIGIN=http://localhost:8080
+# HUB_AUTH_PUBLIC_API_URL=http://localhost:8080/api/v3
+```
+
+The other defaults in `example.env` join the bundle's `crucible` network and call the API at `http://api:8000`. Start the Hub after the bundle, which creates the network:
+
+```bash
+docker compose pull hub hub-setup
+docker compose up -d --wait
+```
+
+`https://crucible.mylab.org/hub/health` (or `http://localhost:8080/hub/health`) then returns `{"status":"ok","sessions":"ok"}`. Open `/hub/` and sign in with the administrator account from [step 4](#4-create-the-first-administrator).
+
+Each Hub secret must be provided in exactly one way (a file in `secrets/`, a `NAME_FILE` path, or an environment variable); the Hub refuses to start when one is set twice. The Hub's own `README.md` documents its settings.
 
 ### 2b. Hub on a separate host
 
