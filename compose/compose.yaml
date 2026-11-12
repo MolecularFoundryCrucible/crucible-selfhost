@@ -1,5 +1,5 @@
-# Crucible on one machine: PostgreSQL, the API, SeaweedFS for files, and Caddy in front.
-# Install guide: README.md in this folder. Hub sign-in: compose.hub.yaml.
+# Crucible on a single host: PostgreSQL, the API, SeaweedFS for files, and Caddy as the reverse proxy.
+# Installation guide: README.md, with one page per optional part in docs/. Settings: .env.example.
 
 name: crucible
 
@@ -17,18 +17,17 @@ x-api: &api
     API_PATH: api/v3
     ALEMBIC_PRODUCTION_DATABASE: ""
     RESERVED_PROJECT_ID_PATTERN: ${CRUCIBLE_RESERVED_PROJECT_ID_PATTERN:-}
-    # Passwords are for small installations; an institution turns them off and lists its own
-    # sign-in provider (see README.md). People are added by an administrator unless registration
-    # is set to approval.
+    # Passwords suit small installations; an institution disables them and lists its own identity
+    # provider (docs/sign_in.md). Administrators create users unless registration is set to approval.
     CRUCIBLE_AUTH_PASSWORD_ENABLED: ${CRUCIBLE_AUTH_PASSWORD_ENABLED:-true}
     CRUCIBLE_AUTH_PASSWORD_REGISTRATION: ${CRUCIBLE_AUTH_PASSWORD_REGISTRATION:-closed}
     CRUCIBLE_AUTH_PEPPER_ID: ${CRUCIBLE_AUTH_PEPPER_ID:-one}
-    # People are found by their recorded logins, which also lets them add another way to sign in.
-    # Only an installation upgraded from 3.x whose people sign in with ORCID sets this to false
-    # until it has run the user_identity backfill (see Upgrading in README.md).
+    # Users are found through their linked identities, which also lets them add a sign-in method.
+    # Only an installation upgraded from 3.x whose users sign in with ORCID sets this to false
+    # until it has run the identity backfill (docs/upgrading/3.3-to-4.0.md in the repository).
     CRUCIBLE_AUTH_IDENTITY_LOOKUP: ${CRUCIBLE_AUTH_IDENTITY_LOOKUP:-true}
-    # The programs that may sign people in. The nano-crucible command line needs no secret;
-    # compose.hub.yaml adds the Hub.
+    # Client applications allowed to sign users in. The nano-crucible command line needs no
+    # secret; compose.hub.yaml adds the Hub.
     CRUCIBLE_AUTH_CLIENTS: >-
       [{"key": "nanocrucible",
         "client_id": "nano-crucible",
@@ -161,7 +160,7 @@ services:
     restart: unless-stopped
 
   # File storage. Leave the bundled-storage profile out of COMPOSE_PROFILES to use another
-  # S3-compatible store instead (README.md, "File storage").
+  # S3-compatible store instead (docs/storage.md).
   seaweedfs:
     image: chrislusf/seaweedfs:4.52
     profiles: [bundled-storage]
@@ -192,7 +191,7 @@ services:
     restart: unless-stopped
 
   # One-off: `docker compose run --rm files-backup backup` copies every bucket to the backup folder,
-  # `restore` copies it back (README.md, "Backups"). Works with the bundled store or your own.
+  # `restore` copies it back (docs/operations.md, "Backups"). Works with the bundled or an external store.
   files-backup:
     image: rclone/rclone:1.76.0
     profiles: [backup]
@@ -233,7 +232,7 @@ services:
       CRUCIBLE_HUB_UPSTREAM: ${CRUCIBLE_HUB_UPSTREAM:-}
       CRUCIBLE_UPLOAD_BUCKET: ${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}
       CRUCIBLE_HTTP_HOSTS: ${CRUCIBLE_HTTP_HOSTS:-}
-    # Reachable from this machine only, unless CRUCIBLE_BIND_ADDRESS opens it to a network.
+    # Reachable from this host only, unless CRUCIBLE_BIND_ADDRESS opens it to a network.
     ports:
       - "${CRUCIBLE_BIND_ADDRESS:-127.0.0.1}:${CRUCIBLE_HTTP_PORT:-8080}:80"
       - "${CRUCIBLE_BIND_ADDRESS:-127.0.0.1}:${CRUCIBLE_HTTPS_PORT:-8443}:443"
@@ -266,7 +265,7 @@ networks:
   # The database and the migration job only; no outside access.
   backend:
     internal: true
-  # Shared with the Hub when it runs on this machine (its project joins this network by name).
+  # Shared with the Hub when it runs on this host (its project joins this network by name).
   crucible:
     name: ${CRUCIBLE_NETWORK:-crucible}
   # The bundled store, reached by the API and the proxy only.

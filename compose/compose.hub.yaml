@@ -1,7 +1,7 @@
-# The Crucible Hub, the web interface. Add to COMPOSE_FILE in .env:
+# Registers the Crucible Hub, the web interface, as a client application (docs/hub.md).
+# Add to COMPOSE_FILE in .env:
 #   COMPOSE_FILE=compose.yaml:compose.hub.yaml
-# People sign in with a password, or through a provider such as ORCID (add compose.orcid.yaml).
-# Anywhere but on this machine, the Hub needs HTTPS; see README.md.
+# The Hub requires HTTPS, except for a single-host evaluation at http://localhost.
 
 services:
   api:

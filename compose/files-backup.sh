@@ -1,5 +1,5 @@
 #!/bin/sh
-# Run by the files-backup service (README.md, "Backups"): copies every bucket to /backup/<bucket>,
+# Run by the files-backup service (docs/operations.md, "Backups"): copies every bucket to /backup/<bucket>,
 # or back into the store. Copies never delete, so a backup keeps files the store no longer has.
 read -r RCLONE_CONFIG_STORE_ACCESS_KEY_ID < /run/secrets/S3_ACCESS_KEY_ID
 read -r RCLONE_CONFIG_STORE_SECRET_ACCESS_KEY < /run/secrets/S3_SECRET_ACCESS_KEY
