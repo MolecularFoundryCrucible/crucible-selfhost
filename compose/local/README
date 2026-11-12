@@ -1,2 +1,3 @@
-# Optional Caddy snippets for this installation; see README.md, "Certificates". Files here may
-# hold credentials: nothing but this note is kept in git.
+# Optional Caddy snippets for this installation (docs/network.md, "Certificates"):
+# global-*.caddy for global options, site-*.caddy for the site. Files here may hold
+# credentials; git tracks only this note.

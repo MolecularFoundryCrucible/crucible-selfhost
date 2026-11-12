@@ -226,7 +226,7 @@ def sign_in_with_a_password(base: str, key: str, link: str) -> None:
     status, _, _ = visit("POST", f"{base}/oauth/password", {"username": username, "password": "not the password", "state": form_state})
     expect("sign in: a wrong password is refused", status == 401, status)
     status, page, _ = visit("POST", f"{base}/oauth/password", {"username": username, "password": password, "state": form_state})
-    allow = re.search(r'class="allow" href="([^"]+)"', page)
+    allow = re.search(r'class="button primary" href="([^"]+)"', page)
     expect("sign in: the program is named for confirmation", status == 200 and allow and "nano-crucible" in page, status)
     answer = urllib.parse.parse_qs(urllib.parse.urlsplit(html.unescape(allow.group(1))).query)
     expect("sign in: the answer carries the code, the state and the issuer", answer.get("state") == [state] and answer.get("iss") == [base] and answer.get("code"), sorted(answer))

@@ -1,7 +1,7 @@
-# Sign-in with ORCID. Add to COMPOSE_FILE in .env, after any other files:
-#   COMPOSE_FILE=compose.yaml:compose.hub.yaml:compose.orcid.yaml
-# Needs HTTPS and an ORCID application; see README.md. For other providers, or several, set
-# CRUCIBLE_AUTH_PROVIDERS yourself (auth-providers.example.json).
+# ORCID sign-in (docs/sign_in.md). Add to COMPOSE_FILE in .env, after any other files:
+#   COMPOSE_FILE=compose.yaml:compose.orcid.yaml
+# Requires HTTPS and an ORCID application. For another provider, or several, set
+# CRUCIBLE_AUTH_PROVIDERS instead (auth-providers.example.json).
 
 services:
   api:
