@@ -8,6 +8,7 @@ Part of the [Docker Compose installation guide](../README.md). Commands run in `
 
 | Symptom | Cause and fix |
 |---|---|
+| `permission denied while trying to connect to the Docker daemon socket` after `sudo usermod -aG docker $USER` | Group membership applies only to new login sessions. Check with `id -nG`, then log out and back in. Under tmux or screen, the server keeps the old groups: stop it (`tmux kill-server`) and start a new one |
 | `bind source path does not exist: .../secrets/<NAME>` | A secret file is missing; create it as in the quick start |
 | `Missing required settings: ...` or `... is given more than one way ...` | The API names the setting; correct `.env` or `secrets/` and run `docker compose up -d --wait` again |
 | `crucible: /run/secrets/PGDB_PW is missing, empty, or not readable` in the `db` logs, and `db` never becomes healthy | The files in `secrets/` must exist and be readable (`chmod 644 secrets/*`). The database's first start was interrupted, so start over: `docker compose down -v`, then `docker compose up -d --build --wait` |
@@ -18,7 +19,9 @@ Part of the [Docker Compose installation guide](../README.md). Commands run in `
 
 | Symptom | Cause and fix |
 |---|---|
-| Clients fail with `tlsv1 alert internal error`; `docker compose logs proxy` shows `Timeout during connect (likely firewall problem)` | Caddy has no certificate: Let's Encrypt cannot reach ports 80 and 443 from the internet. Use another [certificate option](network.md#certificates) |
+| Clients fail with `tlsv1 alert internal error`; `docker compose logs proxy` shows `Timeout during connect (likely firewall problem)` | Caddy has no certificate: Let's Encrypt cannot reach ports 80 and 443 from the internet. In `docker compose logs proxy \| grep -i acme`, `Timeout during connect` means a firewall drops the connections, `Connection refused` means nothing listens at the address the name resolves to (check `CRUCIBLE_BIND_ADDRESS` and the ports), and `NXDOMAIN` or `no valid A records` means the name does not resolve publicly. Run `curl -v http://<name>/` from inside the network and from outside it (for example over a phone hotspot): if it works inside and times out outside, the institution's firewall blocks the ports. Ask IT to open them, or use another [certificate option](network.md#certificates) |
+| Caddy requests a Let's Encrypt certificate although `local/site-tls.caddy` exists; `docker compose logs proxy` shows `No files matching import glob pattern` for `/etc/caddy/local/site-*.caddy` | Caddy cannot read `local/`. Set the [permissions](network.md#permissions-of-local), then run `docker compose up -d --force-recreate --wait proxy` |
+| Python or nano-crucible fail with `CERTIFICATE_VERIFY_FAILED` while browsers accept the site | `local/cert.pem` lacks the intermediate certificates. Rebuild it as the [full chain](network.md#certificate-files) |
 | `421` with "Crucible serves plain HTTP only on localhost" | The server was addressed by another name over plain HTTP. Use `http://localhost:<port>` (through an SSH port forward from another computer), or configure [HTTPS](network.md) |
 
 ## File storage

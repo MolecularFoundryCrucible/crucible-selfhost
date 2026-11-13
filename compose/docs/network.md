@@ -4,6 +4,12 @@ Part of the [Docker Compose installation guide](../README.md). Commands run in `
 
 By default the server answers only on the local host, over plain HTTP. Other hosts reach it by a single name, over HTTPS, with a certificate that browsers and Python already trust. Any name that every client resolves to the server works, including a hostname assigned by the institution; a separately registered domain is not required. Choose the name once and keep it: the Hub, nano-crucible, sign-in and every upload or download link include it, and moving to another server later only requires pointing the name at the new host.
 
+## Choosing the name
+
+- The name must point at a fixed address: a static address or a DHCP reservation registered under the name. If a DHCP lease changes, the name, the certificate and every client point at the wrong host.
+- Publish only an IPv4 (`A`) record while `CRUCIBLE_BIND_ADDRESS=0.0.0.0`. Docker then publishes the ports on IPv4 only, and clients that prefer an IPv6 (`AAAA`) record fail to connect.
+- A registered name and a fixed address do not open the institution's border firewall. Ask IT whether incoming connections from the internet are allowed: the answer decides the certificate option below and who can reach the server.
+
 ## Public address
 
 In `.env`, set these together:
@@ -20,6 +26,7 @@ Then run `docker compose up -d --wait`.
 
 - `CRUCIBLE_SITE_ADDRESS` is the bare name, without `https://` or a port.
 - With rootless Docker, ports below 1024 require `sudo sysctl net.ipv4.ip_unprivileged_port_start=80`.
+- Leave `CRUCIBLE_HTTP_HOSTS` unset. It allows plain HTTP for the names it lists and is only for running [behind another reverse proxy](#behind-an-institutional-reverse-proxy) that already provides HTTPS.
 - Users outside the lab network should connect through the institution's VPN rather than through a server exposed to the internet, unless external collaborators need access.
 
 ## Certificates
@@ -36,11 +43,7 @@ Caddy requires a certificate for the name. Use the first option that applies:
    }
    ```
 
-   If IT provides certificate files instead, save them as `local/cert.pem` and `local/key.pem`, write `local/site-tls.caddy` as follows, and renew the files manually before they expire:
-
-   ```
-   tls /etc/caddy/local/cert.pem /etc/caddy/local/key.pem
-   ```
+   If IT provides certificate files instead, follow [Certificate files](#certificate-files).
 
 2. **Server reachable from the internet.** With the name's DNS record pointing at the server and ports 80 and 443 open to the internet, Caddy obtains and renews a Let's Encrypt certificate with no further configuration. Let's Encrypt validates the name by connecting to the server, so this fails behind an institutional firewall that blocks incoming connections, even when the name resolves publicly.
 
@@ -60,9 +63,90 @@ Caddy requires a certificate for the name. Use the first option that applies:
 
    Import that file into each browser, and pass it to nano-crucible for its own commands only: `REQUESTS_CA_BUNDLE=crucible-root.crt crucible ...`. Setting the variable for a whole shell makes other tools distrust public sites.
 
-Files in `local/` are read only by Caddy, are not tracked in git, and may contain credentials: restrict the directory like `secrets/` (`chmod 700 local`).
-
 Caddy retries a failed certificate request for 30 days. After changing the certificate settings, run `docker compose up -d --force-recreate --wait proxy`.
+
+### Certificate files
+
+Generate the key on the server and give IT only the certificate signing request (CSR). The key never leaves the server: do not paste it into a web form, an email or a ticket, even if a form asks for it. If it was shared, generate a new key and request a new certificate.
+
+```bash
+(umask 077; openssl req -new -newkey rsa:2048 -noenc \
+  -keyout local/key.pem -out local/crucible.csr \
+  -subj "/CN=crucible.mylab.org" \
+  -addext "subjectAltName=DNS:crucible.mylab.org")
+```
+
+Clients check the name against the subjectAltName, not the CN, so it must list the name, and any other name the server answers to (`DNS:crucible.mylab.org,DNS:crucible`).
+
+`local/cert.pem` must hold the full chain in PEM format: the server's certificate first, then the intermediate certificates, without the root. Certificate services usually offer it as a separate download (often labeled "with chain" or "full chain"); otherwise join the files:
+
+```bash
+cat crucible.crt intermediate.crt > local/cert.pem
+```
+
+If the intermediate certificate is missing, the server's certificate gives its download address (`CA Issuers`). The file there is usually in DER format; convert it:
+
+```bash
+openssl x509 -in crucible.crt -noout -ext authorityInfoAccess
+curl -o intermediate.der <the CA Issuers URI>
+openssl x509 -inform DER -in intermediate.der -out intermediate.crt
+```
+
+Before starting Caddy, check that the chain is complete and that the certificate matches the key. The first command prints `OK`; the two hashes must be equal:
+
+```bash
+openssl verify -untrusted local/cert.pem local/cert.pem
+openssl x509 -in local/cert.pem -noout -pubkey | sha256sum
+openssl pkey -in local/key.pem -pubout | sha256sum
+```
+
+Some browsers complete a missing chain themselves, but Python, nano-crucible and curl do not, so a chain that works in a browser can still fail for clients.
+
+Write `local/site-tls.caddy`:
+
+```
+tls /etc/caddy/local/cert.pem /etc/caddy/local/key.pem
+```
+
+Set the [permissions](#permissions-of-local), run `docker compose up -d --force-recreate --wait proxy`, and check from another computer:
+
+```bash
+echo | openssl s_client -connect crucible.mylab.org:443 -servername crucible.mylab.org 2>/dev/null \
+  | grep -E '^ *[0-9] s:|Verify return code'
+curl https://crucible.mylab.org/api/v3/health/ready
+```
+
+The output lists the server's certificate and each intermediate, and ends with `Verify return code: 0 (ok)`.
+
+Caddy does not renew these files. Read the expiry date (`openssl x509 -in local/cert.pem -noout -enddate`) and set a reminder a month before it. To renew, request a new certificate, replace `local/cert.pem` (and `local/key.pem` if a new key was generated), check it as above (with `sudo` for the key), and recreate the proxy.
+
+### Permissions of `local/`
+
+Files in `local/` are read only by Caddy, are not tracked in git, and may contain credentials: `key.pem`, and the `mac_key` in `global-acme.caddy`. Caddy runs as root inside its container, but without the capabilities that let root read other users' files. With rootful Docker it can therefore read a file only if root owns it or everyone can read it. Make the secret files root-owned and keep the rest readable:
+
+```bash
+sudo chown root:root local/key.pem
+sudo chmod 600 local/key.pem
+chmod 755 local
+chmod 644 local/cert.pem local/site-tls.caddy
+```
+
+Treat `global-acme.caddy`, if present, like `key.pem`. Do not restrict the directory itself (`chmod 700`): Caddy then cannot list it, logs `No files matching import glob pattern` for `/etc/caddy/local/site-*.caddy`, ignores the certificate settings, and requests a Let's Encrypt certificate instead. Making the directory root-owned works for Caddy, but git can then no longer read the tracked `local/README`.
+
+With rootless Docker, root in the container is your own user: keep the files owned by you, with `chmod 600` on the secret ones.
+
+## Host firewall
+
+Ports published by Docker bypass ufw and firewalld: Docker forwards the traffic to the container before those rules apply. To limit who can connect, add rules to the `DOCKER-USER` chain, which Docker evaluates first. For example, to accept the web ports only from one address range (replace the interface and the range; add a `RETURN` rule per range):
+
+```bash
+sudo iptables -I DOCKER-USER -i eth0 -p tcp -m multiport --dports 80,443 -j DROP
+sudo iptables -I DOCKER-USER -i eth0 -p udp --dport 443 -j DROP
+sudo iptables -I DOCKER-USER -i eth0 -p tcp -m multiport --dports 80,443 -s 192.0.2.0/24 -j RETURN
+sudo iptables -I DOCKER-USER -i eth0 -p udp --dport 443 -s 192.0.2.0/24 -j RETURN
+```
+
+Each rule is inserted at the top, so the `RETURN` rules come before the `DROP` rules. The ports are the container's (80 and 443) whatever `CRUCIBLE_HTTP_PORT` and `CRUCIBLE_HTTPS_PORT` are, since Docker has already translated the address. These rules are lost on reboot unless saved with the distribution's tool (for example `netfilter-persistent save`). See Docker's [Packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/), which also covers its nftables backend.
 
 ## Behind an institutional reverse proxy
 

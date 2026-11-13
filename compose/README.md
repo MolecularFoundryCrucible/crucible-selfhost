@@ -79,7 +79,7 @@ ssh -L 8080:localhost:8080 you@server
 
 | Page | Contents |
 |---|---|
-| [Network access and HTTPS](docs/network.md) | Public address, certificates, institutional and custom reverse proxies |
+| [Network access and HTTPS](docs/network.md) | Public address, certificates, host firewall, institutional and custom reverse proxies |
 | [Sign-in methods](docs/sign_in.md) | Passwords, self-registration, ORCID and other OpenID Connect providers |
 | [Crucible Hub](docs/hub.md) | The web interface, on the same host or a separate one |
 | [File storage](docs/storage.md) | Data directory, file versions, external S3-compatible storage, Google Cloud Storage |
