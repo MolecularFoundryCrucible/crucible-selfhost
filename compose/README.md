@@ -8,6 +8,7 @@ The quick start gives a server that answers on the local host only, with passwor
 
 - Linux with Docker Engine 28 or later and the Compose plugin 2.20 or later (`docker version`, `docker compose version`). Older Docker releases expose ports published to the local host to other hosts on the same network segment.
 - About 2 GB of free memory and a few GB of disk to start; the database grows with the data.
+- A user allowed to run Docker: a member of the `docker` group, or prefix each `docker` command with `sudo`.
 - A copy of this repository. Images are built from it until versioned images are published.
 
 ## Quick start

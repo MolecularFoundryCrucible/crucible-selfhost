@@ -48,6 +48,7 @@ docker compose run --rm --user "$(id -u):$(id -g)" files-backup
 - Each run copies only files not yet in the backup and never deletes from it. Stored files are never modified in place, so this incremental copy is a complete backup.
 - The copy consists of plain files: `crucible-files/<dataset>/_files/<upload id>` for uploads (their names are in the database) and `crucible-records/<id>/record.json` for the metadata copies. Back up the directory further with standard tools (restic, rsync, a tape robot).
 - With rootless Docker, omit `--user`.
+- When Docker runs through `sudo`, the default directory is under root's home; set `CRUCIBLE_BACKUP_DIR` in `.env`.
 - The same command backs up an external S3 store. It does not copy a Google Cloud Storage bucket (see [File storage](storage.md#google-cloud-storage)).
 
 ## Restore

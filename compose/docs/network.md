@@ -4,6 +4,21 @@ Part of the [Docker Compose installation guide](../README.md). Commands run in `
 
 By default the server answers only on the local host, over plain HTTP. Other hosts reach it by a single name, over HTTPS, with a certificate that browsers and Python already trust. Any name that every client resolves to the server works, including a hostname assigned by the institution; a separately registered domain is not required. Choose the name once and keep it: the Hub, nano-crucible, sign-in and every upload or download link include it, and moving to another server later only requires pointing the name at the new host.
 
+## Setups
+
+The bundle supports three network setups. Each is one consistent set of values in `.env`; mixing values from two of them leaves the server unreachable or hands clients links that nothing serves.
+
+| Setting | Local host only (default) | HTTPS on a network | Behind another reverse proxy |
+|---|---|---|---|
+| `CRUCIBLE_SITE_ADDRESS` | `:80` | `crucible.mylab.org` | `:80` |
+| `CRUCIBLE_HTTP_PORT` | `8080` | `80` | `8080` |
+| `CRUCIBLE_HTTPS_PORT` | `8443` (unused) | `443` | `8443` (unused) |
+| `CRUCIBLE_BIND_ADDRESS` | `127.0.0.1` | `0.0.0.0` | An address the proxy reaches |
+| `CRUCIBLE_PUBLIC_URL` | unset | `https://crucible.mylab.org` | `https://crucible.mylab.org` |
+| `CRUCIBLE_HTTP_HOSTS` | unset | unset | `crucible.mylab.org` |
+| Certificate | None | Obtained by Caddy (see [Certificates](#certificates)) | Held by the other proxy |
+| Described in | [Quick start](../README.md#quick-start) | [Public address](#public-address) | [Behind an institutional reverse proxy](#behind-an-institutional-reverse-proxy) |
+
 ## Choosing the name
 
 - The name must point at a fixed address: a static address or a DHCP reservation registered under the name. If a DHCP lease changes, the name, the certificate and every client point at the wrong host.
@@ -22,7 +37,11 @@ CRUCIBLE_BIND_ADDRESS=0.0.0.0
 CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
 ```
 
-Then run `docker compose up -d --wait`.
+Then run `docker compose up -d --wait`, and verify from another host:
+
+```bash
+curl https://crucible.mylab.org/api/v3/health/ready
+```
 
 - `CRUCIBLE_SITE_ADDRESS` is the bare name, without `https://` or a port.
 - With rootless Docker, ports below 1024 require `sudo sysctl net.ipv4.ip_unprivileged_port_start=80`.
@@ -150,7 +169,7 @@ Each rule is inserted at the top, so the `RETURN` rules come before the `DROP` r
 
 ## Behind an institutional reverse proxy
 
-When an institutional reverse proxy or load balancer already terminates HTTPS and forwards to this host, keep Caddy on plain HTTP, listen on an address the proxy can reach, and name the host it forwards for:
+When an institutional reverse proxy or load balancer already terminates HTTPS and forwards to this host, keep Caddy on plain HTTP (`CRUCIBLE_SITE_ADDRESS=:80`, the default), listen on an address the proxy can reach, and name the host it forwards for. `CRUCIBLE_HTTP_HOSTS` applies only to this setup: without another proxy providing HTTPS, it does not make the server reachable.
 
 ```bash
 CRUCIBLE_BIND_ADDRESS=10.0.0.5
