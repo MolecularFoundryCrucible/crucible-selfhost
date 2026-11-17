@@ -4,12 +4,12 @@ Part of the [Docker Compose installation guide](../README.md).
 
 The Crucible Hub is the web interface. It is optional: without it, the API, API keys and the Python client work unchanged. Users sign in to it through the API, with any of the configured [sign-in methods](sign_in.md).
 
-The Hub is a separate Compose project, from the [crucible-hub repository](https://github.com/MolecularFoundryCrucible/crucible-hub/tree/v1.8.0-alpha.1/deploy/compose), with its own small database for sign-in sessions. It runs on the same host or on a separate one; in both cases the bundle's Caddy serves it at `/hub/`, so users access a single address.
+The Hub is a separate Compose project, from the [crucible-hub repository](https://github.com/MolecularFoundryCrucible/crucible-hub/tree/v1.8.0/deploy/compose), with its own small database for sign-in sessions. It runs on the same host or on a separate one; in both cases the bundle's Caddy serves it at `/hub/`, so users access a single address.
 
 | | |
 |---|---|
-| Release | `v1.8.0-alpha.1`, the pre-release that matches this API version |
-| Image | `ghcr.io/molecularfoundrycrucible/crucible-hub:1.8.0-alpha.1` (amd64 and arm64), prebuilt |
+| Release | `v1.8.0`, the release that matches this API version |
+| Image | `ghcr.io/molecularfoundrycrucible/crucible-hub:1.8.0` (amd64 and arm64), prebuilt |
 | Requires | API 4.0.0 or later: Hub 1.8 signs users in through the API's `/oauth` routes |
 
 ## Prerequisites
@@ -46,7 +46,7 @@ Then run `docker compose up -d --wait`. `compose.hub.yaml` adds the Hub to the c
 Clone the Hub next to this repository and create its secrets. The first one is the secret created in step 1:
 
 ```bash
-git clone --branch v1.8.0-alpha.1 https://github.com/MolecularFoundryCrucible/crucible-hub.git
+git clone --branch v1.8.0 https://github.com/MolecularFoundryCrucible/crucible-hub.git
 cd crucible-hub/deploy/compose
 mkdir -p secrets && chmod 700 secrets
 cp /path/to/crucible-api/deploy/compose/secrets/HUB_AUTH_CLIENT_SECRET secrets/hub_auth_client_secret
@@ -60,7 +60,7 @@ cp example.env .env
 In the Hub's `.env`, set:
 
 ```bash
-HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.8.0-alpha.1
+HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.8.0
 HUB_PUBLIC_ORIGIN=https://crucible.mylab.org
 HUB_AUTH_PUBLIC_API_URL=https://crucible.mylab.org/api/v3
 # Single-host evaluation with the bundle's defaults:
