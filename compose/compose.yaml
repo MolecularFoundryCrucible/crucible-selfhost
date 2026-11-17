@@ -21,6 +21,7 @@ x-api: &api
     # provider (docs/sign_in.md). Administrators create users unless registration is set to approval.
     CRUCIBLE_AUTH_PASSWORD_ENABLED: ${CRUCIBLE_AUTH_PASSWORD_ENABLED:-true}
     CRUCIBLE_AUTH_PASSWORD_REGISTRATION: ${CRUCIBLE_AUTH_PASSWORD_REGISTRATION:-closed}
+    CRUCIBLE_AUTH_MAX_PENDING_ACCOUNTS: ${CRUCIBLE_AUTH_MAX_PENDING_ACCOUNTS:-100}
     CRUCIBLE_AUTH_PEPPER_ID: ${CRUCIBLE_AUTH_PEPPER_ID:-one}
     # Users are found through their linked identities, which also lets them add a sign-in method.
     # Only an installation upgraded from 3.x whose users sign in with ORCID sets this to false
