@@ -1,7 +1,7 @@
 """Smoke test for a running Crucible installation, through its public address.
 
 Usage:
-    CRUCIBLE_API_URL=http://localhost:8080/api/v3 CRUCIBLE_API_KEY=KEY python scripts/selfhost_smoke.py
+    CRUCIBLE_API_URL=http://localhost:8080/api/v4 CRUCIBLE_API_KEY=KEY python scripts/selfhost_smoke.py
 
 or with --api-url and --api-key. KEY is a platform administrator's API key
 (`python -m app.cli admin create`). The test creates a project, a sample, a dataset with an uploaded

@@ -33,16 +33,16 @@ Each file holds one secret and is mounted into the containers that need it. `sec
 cp .env.example .env
 ```
 
-The defaults serve `http://localhost:8080/api/v3/` to the local host only and need no editing. `.env.example` lists every setting with its default, grouped by the pages under [Further configuration](#further-configuration).
+The defaults serve `http://localhost:8080/api/v4/` to the local host only and need no editing. `.env.example` lists every setting with its default, grouped by the pages under [Further configuration](#further-configuration).
 
 ### 3. Start the services
 
 ```bash
 docker compose up -d --build --wait
-curl http://localhost:8080/api/v3/health/ready
+curl http://localhost:8080/api/v4/health/ready
 ```
 
-The first start builds the API image and creates the database, its schema and the storage buckets; `--wait` returns once every service is healthy. The response contains `"status":"ok"` and `"schema_state":"current"`. The interactive API documentation is at `http://localhost:8080/api/v3/docs`.
+The first start builds the API image and creates the database, its schema and the storage buckets; `--wait` returns once every service is healthy. The response contains `"status":"ok"` and `"schema_state":"current"`. The interactive API documentation is at `http://localhost:8080/api/v4/docs`.
 
 ### 4. Create the first administrator
 
@@ -61,7 +61,7 @@ Run the command interactively, so that neither value is written to a log.
 
 ```bash
 pip install nano-crucible
-crucible config set api_url http://localhost:8080/api/v3
+crucible config set api_url http://localhost:8080/api/v4
 crucible config set api_key <the key from step 4>
 crucible config show
 ```
@@ -87,4 +87,4 @@ ssh -L 8080:localhost:8080 you@server
 | [Operations](docs/operations.md) | Secrets, backups, restore, upgrades, cleanup jobs, removal |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and their causes |
 
-The settings behind these pages are described in [Authentication configuration](../../docs/sign_in_operations.md) and [Multipart uploads](../../docs/multipart_upload_api.md).
+The settings behind these pages are described in [Authentication configuration](../../docs/sign_in_operations.md) and [Multipart uploads](../../docs/uploads.md).

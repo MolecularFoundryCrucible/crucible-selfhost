@@ -78,6 +78,14 @@ The `migrate` step applies pending database migrations before the new API starts
 
 After each upgrade, compare `.env` with `.env.example` for new settings. An installation created before 4.0.0 requires additional steps: see [Upgrading from 3.3.1 to 4.0.0](../../../docs/upgrading/3.3-to-4.0.md#docker-compose).
 
+### The API at /api/v4
+
+From 4.0.2 the bundle serves the API at `/api/v4`, and everything under `/api/v3` answers 308 to the same path under `/api/v4`, so existing clients keep working. An installation set up earlier needs three changes after upgrading:
+
+- If ORCID is used, register the new callback with ORCID: `https://<your address>/api/v4/oauth/callback/orcid`, or `.../api/v4/auth/hub/callback` with `ORCID_LEGACY_CALLBACK=true`. Keep the old one registered until the upgrade is done.
+- If the Hub is installed, set `HUB_AUTH_PUBLIC_API_URL` and `CRUCIBLE_API_BASE_URL` in the Hub's `.env` to the `/api/v4` address, and restart it.
+- Point clients at `/api/v4` when convenient: `crucible config set api_url https://<your address>/api/v4`. nano-crucible 4.0.1 and later sign in through the redirect; 4.0.0 does not.
+
 ## Cleanup jobs
 
 Two services run hourly and need no attention:

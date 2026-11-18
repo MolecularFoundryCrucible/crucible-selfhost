@@ -42,7 +42,7 @@ CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
 Then run `docker compose up -d --wait`, and verify from another host:
 
 ```bash
-curl https://crucible.mylab.org/api/v3/health/ready
+curl https://crucible.mylab.org/api/v4/health/ready
 ```
 
 - `CRUCIBLE_SITE_ADDRESS` is the bare name, without `https://` or a port.
@@ -133,7 +133,7 @@ Set the [permissions](#permissions-of-local), run `docker compose up -d --force-
 ```bash
 echo | openssl s_client -connect crucible.mylab.org:443 -servername crucible.mylab.org 2>/dev/null \
   | grep -E '^ *[0-9] s:|Verify return code'
-curl https://crucible.mylab.org/api/v3/health/ready
+curl https://crucible.mylab.org/api/v4/health/ready
 ```
 
 The output lists the server's certificate and each intermediate, and ends with `Verify return code: 0 (ok)`.
@@ -192,11 +192,12 @@ The proxy must pass `Host`, set `X-Forwarded-For` to the client address and `X-F
 
 Caddy can be replaced by any reverse proxy that meets these requirements:
 
-- `/api/v3/` routes to the API (`api:8000` inside Compose, or the API container's port) with the `/api/v3` prefix removed; the API serves its documentation under that prefix (`API_PATH=api/v3`).
+- `/api/v4/` routes to the API (`api:8000` inside Compose, or the API container's port) with the `/api/v4` prefix removed; the API serves its documentation under that prefix (`API_PATH=api/v4`).
 - Pass `Host`, `X-Forwarded-For` (set to the client address, not appended to the value the client sent), and `X-Forwarded-Proto`. The API trusts forwarding headers from any address (`FORWARDED_ALLOW_IPS="*"`), so it must be reachable only through the proxy.
 - Allow request bodies of 10 MB, 20 MB for thumbnails (the API's own limits), and read timeouts of at least 60 seconds.
-- Limit the sign-in routes, `/api/v3/oauth/` and `/api/v3/auth/hub/`, to 8 KB bodies and a 20 second timeout, as Caddy does here.
-- Do not serve `/api/v3/metrics` to the outside.
+- Limit the sign-in routes, `/api/v4/oauth/` and `/api/v4/auth/hub/`, to 8 KB bodies and a 20 second timeout, as Caddy does here.
+- Do not serve `/api/v4/metrics` to the outside.
+- For clients set up before the API moved to `/api/v4`, answer everything under `/api/v3` with a 308 to the same path under `/api/v4`, keeping the query; a 308 keeps the method and the body.
 - `/crucible-files/` routes to SeaweedFS (`seaweedfs:8333`) with the path and `Host` unchanged, since the store validates the signed URL against both. Remove the `Authorization` and `Cookie` request headers, allow request bodies of 64 MB (one upload part) and read timeouts of a few minutes, and do not compress responses. Add `Content-Security-Policy: sandbox; default-src 'none'`, `X-Content-Type-Options: nosniff`, and `Cross-Origin-Resource-Policy: same-site` to the responses, so that a downloaded file never runs as a page of the site and other sites cannot embed it ([web.dev, "Securely hosting user data"](https://web.dev/articles/securely-hosting-user-data)); current Chrome and Firefox still display PDFs and images in the browser with these headers. Do not route the records bucket.
 - With the Hub: `/hub/` routes to the Hub (`hub:3000`) with the prefix kept. `X-Forwarded-For` must again be set, not appended: the Hub limits sign-in attempts per client address and trusts one proxy (`HUB_TRUSTED_PROXY_HOPS=1`).
 
@@ -208,10 +209,11 @@ server {
     server_name crucible.mylab.org;
     client_max_body_size 20m;
 
-    location = /api/v3 { return 301 /api/v3/; }
-    location = /api/v3/metrics { return 404; }
+    location = /api/v4 { return 301 /api/v4/; }
+    location = /api/v4/metrics { return 404; }
+    location ~ ^/api/v3(/.*)?$ { return 308 /api/v4$1$is_args$args; }
 
-    location /api/v3/ {
+    location /api/v4/ {
         proxy_pass http://api:8000/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
