@@ -163,7 +163,7 @@ services:
   # File storage. Leave the bundled-storage profile out of COMPOSE_PROFILES to use another
   # S3-compatible store instead (docs/storage.md).
   seaweedfs:
-    image: chrislusf/seaweedfs:4.52
+    image: chrislusf/seaweedfs:4.53
     profiles: [bundled-storage]
     # The image's seaweed user, which owns /data in the image and so in a new volume.
     user: "1000:1000"
