@@ -87,4 +87,4 @@ ssh -L 8080:localhost:8080 you@server
 | [Operations](docs/operations.md) | Secrets, backups, restore, upgrades, cleanup jobs, removal |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and their causes |
 
-The settings behind these pages are described in [Authentication configuration](../../docs/sign_in_operations.md) and [Multipart uploads](../../docs/multipart_upload_api.md).
+The settings behind these pages are described in [Authentication configuration](../../docs/sign_in_operations.md) and [Multipart uploads](../../docs/uploads.md).
