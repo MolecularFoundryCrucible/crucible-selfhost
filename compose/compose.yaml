@@ -14,7 +14,7 @@ x-api: &api
     DB_USERNAME: crucible
     DB_DATABASE: crucible
     API_PUBLIC_URL: ${CRUCIBLE_PUBLIC_URL:-http://localhost:${CRUCIBLE_HTTP_PORT:-8080}}
-    API_PATH: api/v3
+    API_PATH: api/v4
     ALEMBIC_PRODUCTION_DATABASE: ""
     RESERVED_PROJECT_ID_PATTERN: ${CRUCIBLE_RESERVED_PROJECT_ID_PATTERN:-}
     # Passwords suit small installations; an institution disables them and lists its own identity

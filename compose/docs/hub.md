@@ -32,7 +32,7 @@ In `.env`:
 
 ```bash
 COMPOSE_FILE=compose.yaml:compose.hub.yaml
-# Public address: no /api/v3, no trailing slash; include the port if it is not 443.
+# Public address: no /api/v4, no trailing slash; include the port if it is not 443.
 # Leave it unset for a single-host evaluation at http://localhost:8080.
 CRUCIBLE_PUBLIC_URL=https://crucible.mylab.org
 ```
@@ -62,10 +62,10 @@ In the Hub's `.env`, set:
 ```bash
 HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.8.0
 HUB_PUBLIC_ORIGIN=https://crucible.mylab.org
-HUB_AUTH_PUBLIC_API_URL=https://crucible.mylab.org/api/v3
+HUB_AUTH_PUBLIC_API_URL=https://crucible.mylab.org/api/v4
 # Single-host evaluation with the bundle's defaults:
 # HUB_PUBLIC_ORIGIN=http://localhost:8080
-# HUB_AUTH_PUBLIC_API_URL=http://localhost:8080/api/v3
+# HUB_AUTH_PUBLIC_API_URL=http://localhost:8080/api/v4
 ```
 
 The other defaults in `example.env` join the bundle's `crucible` network and call the API at `http://api:8000`. Start the Hub after the bundle, which creates the network:
@@ -85,7 +85,7 @@ Each Hub secret must be provided in exactly one way (a file in `secrets/`, a `NA
 2. In the Hub's `.env`, comment out the same-machine block and use the separate-machine block:
    - `COMPOSE_FILE=compose.yaml:compose.published.yaml`
    - `HUB_BIND_ADDRESS`: the address on which the API host reaches the Hub
-   - `CRUCIBLE_API_BASE_URL=https://crucible.mylab.org/api/v3`
+   - `CRUCIBLE_API_BASE_URL=https://crucible.mylab.org/api/v4`
    - `HUB_IMAGE`, `HUB_PUBLIC_ORIGIN` and `HUB_AUTH_PUBLIC_API_URL` as above
 3. Start it with `docker compose pull hub hub-setup` and `docker compose up -d --wait`.
 4. In the bundle's `.env` on the API host, set `CRUCIBLE_HUB_UPSTREAM=<that address>:3000` (an address and port, without `http://`) and run `docker compose up -d --wait`.

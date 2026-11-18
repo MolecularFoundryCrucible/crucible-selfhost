@@ -24,19 +24,23 @@ respond @plain_http_elsewhere "Crucible serves plain HTTP only on localhost. Set
 encode @compressible zstd gzip
 
 # The metrics need no sign-in; scrape them from inside the Compose network (api:8000/metrics).
-respond /api/v3/metrics 404
+respond /api/v4/metrics 404
 
-redir /api/v3 /api/v3/ permanent
+redir /api/v4 /api/v4/ permanent
+# Installations set up before the API moved to /api/v4: everything under /api/v3 answers 308 to the
+# same path under /api/v4, keeping the method, the body and the query, so older clients keep working.
+@api_v3 path_regexp api_v3 ^/api/v3(/.*)?$
+redir @api_v3 /api/v4{re.api_v3.1}{?query} 308
 redir /hub /hub/ permanent
 
 # Sign-in (the OAuth routes, the provider callbacks, the API's own forms, and the routes older Hub
 # releases call): small requests only, and a bounded wait for the API, as the Foundry's front door sets.
-@sign_in path /api/v3/oauth/* /api/v3/auth/hub/*
+@sign_in path /api/v4/oauth/* /api/v4/auth/hub/*
 handle @sign_in {
 	request_body {
 		max_size 8KB
 	}
-	uri strip_prefix /api/v3
+	uri strip_prefix /api/v4
 	reverse_proxy api:8000 {
 		transport http {
 			response_header_timeout 20s
@@ -46,7 +50,7 @@ handle @sign_in {
 
 # The same body limits as the API's own (API_MAX_BODY_MIB, API_MAX_THUMBNAIL_BODY_MIB), refused here
 # before they reach it. Files never pass through the API; thumbnails arrive as base64 JSON.
-handle_path /api/v3/* {
+handle_path /api/v4/* {
 	@thumbnail path_regexp ^/datasets/[^/]+/thumbnails(/[^/]+)?/?$
 	@other not path_regexp ^/datasets/[^/]+/thumbnails(/[^/]+)?/?$
 	request_body @thumbnail {
@@ -82,5 +86,5 @@ handle /hub/* {
 }
 
 handle {
-	respond "Crucible: the API is at /api/v3/" 404
+	respond "Crucible: the API is at /api/v4/" 404
 }

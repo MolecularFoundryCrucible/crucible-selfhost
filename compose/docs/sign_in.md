@@ -16,7 +16,7 @@ docker compose run --rm api python -m app.cli admin password-link USER
 
 | Task | How |
 |---|---|
-| Self-registration | Set `CRUCIBLE_AUTH_PASSWORD_REGISTRATION=approval` in `.env`. Users request an account at `/api/v3/oauth/register`; an administrator reviews requests with `admin pending`, then `admin approve USER` or `admin reject USER`, or on the Hub's Users page |
+| Self-registration | Set `CRUCIBLE_AUTH_PASSWORD_REGISTRATION=approval` in `.env`. Users request an account at `/api/v4/oauth/register`; an administrator reviews requests with `admin pending`, then `admin approve USER` or `admin reject USER`, or on the Hub's Users page |
 | Locked-out user or administrator | `admin password-link USER` works for any account; a new link restores access |
 | Additional administrator | `admin create --allow-additional`; without the option, a second run changes nothing |
 | Scripted creation of the first administrator | `admin create --no-input --first-name Ada --last-name Lovelace --email ada@example.org`, run with `docker compose run --rm -T`. The output contains the API key and the password link: keep it out of logs |
@@ -32,7 +32,7 @@ When passwords and providers are both enabled, the sign-in page shows the passwo
 
 ### ORCID
 
-1. Register Public API credentials at [ORCID developer tools](https://orcid.org/developer-tools) (free; requires a verified email), with the redirect URI `https://<your address>/api/v3/oauth/callback/orcid`, including the port when it is not 443. ORCID accepts only HTTPS and requires an exact match of the address. For evaluation, use the [ORCID sandbox](https://sandbox.orcid.org) and its separate accounts.
+1. Register Public API credentials at [ORCID developer tools](https://orcid.org/developer-tools) (free; requires a verified email), with the redirect URI `https://<your address>/api/v4/oauth/callback/orcid`, including the port when it is not 443. ORCID accepts only HTTPS and requires an exact match of the address. For evaluation, use the [ORCID sandbox](https://sandbox.orcid.org) and its separate accounts.
 
 2. Store the client secret:
 
