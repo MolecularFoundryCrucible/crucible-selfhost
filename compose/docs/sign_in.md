@@ -1,8 +1,8 @@
 # Sign-in methods
 
-Part of the [Docker Compose installation guide](../README.md). Commands run in `deploy/compose`.
+Part of the [Docker Compose installation guide](../README.md). Commands run in `compose`.
 
-Users sign in with a password, through an identity provider, or both. The bundle enables passwords by default. Every setting is described in [Authentication configuration](../../../docs/sign_in_operations.md).
+Users sign in with a password, through an identity provider, or both. The bundle enables passwords by default. Every setting is described in [Authentication configuration](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/sign_in_operations.md).
 
 ## Passwords
 
@@ -56,4 +56,4 @@ When passwords and providers are both enabled, the sign-in page shows the passwo
 
 ### Other providers
 
-For another provider, or several at once, list them in `CRUCIBLE_AUTH_PROVIDERS` as in `auth-providers.example.json` and [the provider list](../../../docs/sign_in_operations.md#the-provider-list). Each entry specifies whether new users are refused, wait for approval, or are admitted immediately.
+For another provider, or several at once, list them in `CRUCIBLE_AUTH_PROVIDERS` as in `auth-providers.example.json` and [the provider list](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/sign_in_operations.md#the-provider-list). Each entry specifies whether new users are refused, wait for approval, or are admitted immediately.

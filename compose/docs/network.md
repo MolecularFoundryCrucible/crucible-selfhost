@@ -1,6 +1,6 @@
 # Network access and HTTPS
 
-Part of the [Docker Compose installation guide](../README.md). Commands run in `deploy/compose`.
+Part of the [Docker Compose installation guide](../README.md). Commands run in `compose`.
 
 By default the server answers only on the local host, over plain HTTP. Other computers reach it by a name, over HTTPS.
 

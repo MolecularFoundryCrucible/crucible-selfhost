@@ -1,6 +1,6 @@
 # File storage
 
-Part of the [Docker Compose installation guide](../README.md). Commands run in `deploy/compose`.
+Part of the [Docker Compose installation guide](../README.md). Commands run in `compose`.
 
 The bundle stores files in SeaweedFS, an S3-compatible store that runs alongside the API. An external S3-compatible store or Google Cloud Storage can replace it; the choice is transparent to clients.
 

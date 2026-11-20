@@ -17,7 +17,7 @@ import /etc/caddy/local/site-*.caddy
 	protocol http
 	not host localhost 127.0.0.1 [::1] {$CRUCIBLE_HTTP_HOSTS}
 }
-respond @plain_http_elsewhere "Crucible serves plain HTTP only on localhost. Set up HTTPS to reach it from other machines (deploy/compose/docs/network.md)." 421
+respond @plain_http_elsewhere "Crucible serves plain HTTP only on localhost. Set up HTTPS to reach it from other machines (compose/docs/network.md in crucible-selfhost)." 421
 
 # Stored files pass through byte for byte, with their length, so downloads can resume.
 @compressible not path /{$CRUCIBLE_UPLOAD_BUCKET:crucible-files}/*

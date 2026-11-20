@@ -4,7 +4,7 @@
 name: crucible
 
 x-api: &api
-  image: crucible-api:local
+  image: ${CRUCIBLE_API_IMAGE:-ghcr.io/molecularfoundrycrucible/crucible-api:4.0.1}
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   read_only: true
@@ -25,7 +25,7 @@ x-api: &api
     CRUCIBLE_AUTH_PEPPER_ID: ${CRUCIBLE_AUTH_PEPPER_ID:-one}
     # Users are found through their linked identities, which also lets them add a sign-in method.
     # Only an installation upgraded from 3.x whose users sign in with ORCID sets this to false
-    # until it has run the identity backfill (docs/upgrading/3.3-to-4.0.md in the repository).
+    # until it has run the identity backfill (the crucible-api upgrade guide for 3.3.1 to 4.0.0).
     CRUCIBLE_AUTH_IDENTITY_LOOKUP: ${CRUCIBLE_AUTH_IDENTITY_LOOKUP:-true}
     # Client applications allowed to sign users in. The nano-crucible command line needs no
     # secret; compose.hub.yaml adds the Hub.
@@ -91,8 +91,6 @@ services:
 
   api:
     <<: *api
-    build:
-      context: ../..
     environment:
       <<: [*api-environment, *storage-environment]
       PORT: "8000"

@@ -1,0 +1,233 @@
+name: compose
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compose-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: compose
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Create secrets and settings as in the install guide
+        run: |
+          mkdir -p secrets && chmod 700 secrets
+          for name in POSTGRES_PASSWORD PGDB_PW CRUCIBLE_SECRET_KEY CRUCIBLE_AUTH_PEPPER S3_SECRET_ACCESS_KEY; do
+            openssl rand -hex 32 > "secrets/$name"
+          done
+          openssl rand -hex 16 > secrets/S3_ACCESS_KEY_ID
+          chmod 644 secrets/*
+          cp .env.example .env
+      - name: Start
+        run: docker compose up -d --wait
+      - name: Create the first administrator
+        run: |
+          docker compose run --rm -T api python -m app.cli admin create --no-input --first-name Smoke --last-name Admin > "$RUNNER_TEMP/admin.json"
+          python3 -c "import json, sys; print('created', json.load(open(sys.argv[1]))['username'])" "$RUNNER_TEMP/admin.json"
+      - name: Smoke test through the proxy
+        env:
+          CRUCIBLE_API_URL: http://localhost:8080/api/v4
+        run: |
+          CRUCIBLE_API_KEY=$(python3 -c "import json, sys; print(json.load(open(sys.argv[1]))['api_key'])" "$RUNNER_TEMP/admin.json")
+          CRUCIBLE_PASSWORD_LINK=$(python3 -c "import json, sys; print(json.load(open(sys.argv[1]))['password_link'])" "$RUNNER_TEMP/admin.json")
+          export CRUCIBLE_API_KEY CRUCIBLE_PASSWORD_LINK
+          python3 ../scripts/smoke.py
+      - name: Only this machine can reach it, and plain HTTP under another name is refused
+        run: |
+          test "$(docker compose port proxy 80)" = "127.0.0.1:8080"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: labbox:8080' http://localhost:8080/api/v4/health/ready)" = 421
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v4/metrics)" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST 'http://localhost:8080/api/v3/oauth/token?x=1')" = "308 http://localhost:8080/api/v4/oauth/token?x=1"
+          docker compose exec -T api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/metrics')"
+      - name: Storage check inside the API container
+        run: docker compose exec -T api python -m app.cli storage check
+      - name: People are found by their recorded logins, and the upgrade backfill named in the upgrade guide runs
+        run: |
+          docker compose exec -T api python -c "from app.config import get_settings; assert get_settings().auth.identity_lookup"
+          docker compose run --rm -T api python -m app.cli identity backfill --issuer https://orcid.org
+      - name: The provider list example is accepted
+        run: |
+          docker compose run --rm -T -e CRUCIBLE_AUTH_PROVIDERS="$(cat auth-providers.example.json)" api python -c "
+          from app.config import get_settings
+          listed = get_settings().auth.providers
+          assert [provider.key for provider in listed] == ['orcid', 'lab'], listed
+          assert listed[0].is_orcid and not any(provider.legacy_callback for provider in listed)"
+      - name: Sign-in cleanup runs and its service stays up
+        run: |
+          docker compose exec -T api python -m app.cli auth cleanup --dry-run
+          test -n "$(docker compose ps -q --status running auth-cleanup)"
+      - name: Back up the stored files as in the install guide
+        run: |
+          mkdir -p "$RUNNER_TEMP/backups/files"
+          CRUCIBLE_BACKUP_DIR="$RUNNER_TEMP/backups" docker compose run --rm --user "$(id -u):$(id -g)" files-backup
+          find "$RUNNER_TEMP/backups/files/crucible-files" -path '*/_files/*' -type f | grep -q .
+          find "$RUNNER_TEMP/backups/files/crucible-records" -name record.json -not -path '*/_crucible-check/*' | grep -q .
+      - name: Service logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Remove
+        if: always()
+        run: |
+          docker compose down -v
+          rm -f "$RUNNER_TEMP/admin.json"
+
+  compose-hub:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SITE: https://localhost:8443
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the Hub's compose files at its pinned release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MolecularFoundryCrucible/crucible-hub
+          ref: b85e131223f7677e55729036b412647bb509fff3 # v1.8.0
+          path: hub
+          persist-credentials: false
+      - name: Start the API with Hub sign-in, over HTTPS with Caddy's local CA
+        working-directory: compose
+        run: |
+          echo "CA=$RUNNER_TEMP/caddy-root.crt" >> "$GITHUB_ENV"
+          CA="$RUNNER_TEMP/caddy-root.crt"
+          mkdir -p secrets && chmod 700 secrets
+          for name in POSTGRES_PASSWORD PGDB_PW CRUCIBLE_SECRET_KEY CRUCIBLE_AUTH_PEPPER HUB_AUTH_CLIENT_SECRET S3_SECRET_ACCESS_KEY; do
+            openssl rand -hex 32 > "secrets/$name"
+          done
+          openssl rand -hex 16 > secrets/S3_ACCESS_KEY_ID
+          printf 'not-a-real-orcid-secret' > secrets/ORCID_CLIENT_SECRET
+          chmod 644 secrets/*
+          cp .env.example .env
+          cat >> .env <<EOF
+          COMPOSE_FILE=compose.yaml:compose.hub.yaml:compose.orcid.yaml
+          CRUCIBLE_SITE_ADDRESS=localhost
+          CRUCIBLE_PUBLIC_URL=$SITE
+          ORCID_CLIENT_ID=APP-SELFHOSTTEST0
+          ORCID_ISSUER=https://sandbox.orcid.org
+          EOF
+          docker compose up -d --wait
+          for _ in $(seq 30); do
+            docker compose exec -T proxy test -s /data/caddy/pki/authorities/local/root.crt && break
+            sleep 1
+          done
+          docker compose exec -T proxy cat /data/caddy/pki/authorities/local/root.crt > "$CA"
+      - name: Start the Hub from its published image on the same machine, as in its README
+        working-directory: hub/deploy/compose
+        run: |
+          mkdir -p secrets && chmod 700 secrets
+          cp ../../../compose/secrets/HUB_AUTH_CLIENT_SECRET secrets/hub_auth_client_secret
+          printf 'k1:%s' "$(openssl rand 32 | basenc --base64url | tr -d '=\n')" > secrets/hub_session_keys
+          openssl rand -base64 32 | tr -d '\n' > secrets/hub_session_database_password
+          openssl rand -base64 32 | tr -d '\n' > secrets/hub_db_admin_password
+          chmod 444 secrets/hub_*
+          cp example.env .env
+          sed -i "s#^HUB_PUBLIC_ORIGIN=.*#HUB_PUBLIC_ORIGIN=$SITE#; s#^HUB_AUTH_PUBLIC_API_URL=.*#HUB_AUTH_PUBLIC_API_URL=$SITE/api/v4#" .env
+          echo "HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.8.0@sha256:2c1c9dc2bf6fd80deb164dd60b946c3874c385d8deab1f8e382f1a8a115d3651" >> .env
+          docker compose pull hub hub-setup
+          docker compose up -d --wait
+          test "$(docker inspect "$(docker compose ps -q hub)" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "1.8.0"
+      - name: The Hub answers through the front door, and sign-in through the API offers ORCID and a password
+        run: |
+          curl -fsS --cacert "$CA" "$SITE/hub/health" | grep -q '"sessions":"ok"'
+          login=$(curl -sS --cacert "$CA" -o /dev/null -w '%{redirect_url}' "$SITE/hub/auth/login")
+          case "$login" in "$SITE/api/v4/oauth/authorize?"*) ;; *) echo "Hub login went to $login"; exit 1;; esac
+          test "$(curl -sS --cacert "$CA" -L -c "$RUNNER_TEMP/jar" -b "$RUNNER_TEMP/jar" -o "$RUNNER_TEMP/sign-in.html" -w '%{http_code}' "$login")" = 200
+          grep -q 'autocomplete="current-password"' "$RUNNER_TEMP/sign-in.html"
+          grep -q 'provider=orcid' "$RUNNER_TEMP/sign-in.html"
+          orcid=$(curl -sS --cacert "$CA" -o /dev/null -w '%{redirect_url}' "$login&provider=orcid")
+          case "$orcid" in "https://sandbox.orcid.org/oauth/authorize?"*) ;; *) echo "API login went to ${orcid%%\?*}"; exit 1;; esac
+          python3 -c "import sys; from urllib.parse import parse_qs, urlparse; q = parse_qs(urlparse(sys.argv[1]).query); assert q['redirect_uri'] == [sys.argv[2] + '/api/v4/oauth/callback/orcid'], q['redirect_uri']" "$orcid" "$SITE"
+      - name: The Hub authenticates to the API with the shared secret
+        working-directory: hub/deploy/compose
+        run: |
+          docker compose exec -T -e SITE hub node -e "
+          const secret = require('fs').readFileSync('/run/secrets/HUB_AUTH_CLIENT_SECRET', 'utf8').trim();
+          const body = () => new URLSearchParams({grant_type: 'authorization_code', code: 'c'.repeat(32), code_verifier: 'v'.repeat(43), redirect_uri: process.env.SITE + '/hub/auth/callback'});
+          const call = pw => fetch('http://api:8000/oauth/token', {method: 'POST', body: body(), headers: {Authorization: 'Basic ' + Buffer.from('crucible-hub:' + pw).toString('base64')}})
+            .then(async r => [r.status, (await r.json()).error]);
+          (async () => {
+            const [right, wrong] = [await call(secret), await call('wrong')];
+            console.log('right secret', right, 'wrong secret', wrong);
+            const ok = right[0] === 400 && right[1] === 'invalid_grant' && wrong[0] === 401 && wrong[1] === 'invalid_client';
+            process.exit(ok ? 0 : 1);
+          })();"
+      - name: Neither project can reach the other's database, the Hub cannot reach the store, and containers hold no extra capabilities
+        run: |
+          for target in db:5432 seaweedfs:8333; do
+            (cd hub/deploy/compose && docker compose exec -T -e TARGET="$target" hub node -e "
+            const net = require('net');
+            const [host, port] = process.env.TARGET.split(':');
+            const s = net.connect({host, port: Number(port), timeout: 3000});
+            s.on('connect', () => { console.log('hub reached ' + process.env.TARGET); process.exit(1); });
+            s.on('error', () => process.exit(0)); s.on('timeout', () => process.exit(0));")
+          done
+          cd compose
+          docker compose exec -T api python -c "
+          import socket
+          try:
+              socket.create_connection(('hub-db', 5432), timeout=3)
+          except OSError:
+              pass
+          else:
+              raise SystemExit('api reached hub-db')"
+          for service in api proxy; do
+            caps=$(docker compose exec -T "$service" sh -c "grep CapEff /proc/1/status" | awk '{print $2}')
+            echo "$service $caps"
+          done
+          test "$(docker compose exec -T api sh -c 'grep CapEff /proc/1/status' | awk '{print $2}')" = 0000000000000000
+          test "$(docker compose exec -T api id -u)" = 10001
+          if docker compose exec -T api touch /app/app/written-at-run-time; then echo 'the API can write to its own code'; exit 1; fi
+          docker compose exec -T api touch /tmp/scratch
+          test "$(docker compose exec -T proxy sh -c 'grep CapEff /proc/1/status' | awk '{print $2}')" = 0000000000000400
+          test "$(docker compose exec -T seaweedfs sh -c 'grep CapEff /proc/1/status' | awk '{print $2}')" = 0000000000000000
+      # The API side of a second-machine Hub is only CRUCIBLE_HUB_UPSTREAM; the Hub's own calls to the API then go
+      # over the public HTTPS address, which crucible-hub tests. Its API address here only has to be accepted.
+      - name: The front door reaches a Hub that is off the shared network (second machine, simulated)
+        run: |
+          gateway=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+          cd hub/deploy/compose
+          docker compose down
+          sed -i "s#^COMPOSE_FILE=.*#COMPOSE_FILE=compose.yaml:compose.published.yaml#; s#^CRUCIBLE_API_BASE_URL=.*#CRUCIBLE_API_BASE_URL=http://$gateway:8080/api/v4#" .env
+          echo "HUB_BIND_ADDRESS=$gateway" >> .env
+          docker compose up -d --wait
+          cd ../../../compose
+          echo "CRUCIBLE_HUB_UPSTREAM=$gateway:3000" >> .env
+          docker compose up -d --wait
+          curl -fsS --cacert "$CA" "$SITE/hub/health" | grep -q '"sessions":"ok"'
+          if docker network inspect crucible --format '{{range .Containers}}{{.Name}} {{end}}' | grep -q hub; then echo "the Hub is still on the crucible network"; exit 1; fi
+      - name: Removing the Hub leaves the API working
+        working-directory: compose
+        run: |
+          (cd ../hub/deploy/compose && docker compose down -v)
+          sed -i '/^COMPOSE_FILE=/d; /^CRUCIBLE_HUB_UPSTREAM=/d' .env
+          docker compose up -d --wait
+          test "$(curl -sS --cacert "$CA" -o /dev/null -w '%{http_code}' "$SITE/hub/")" = 404
+          curl -fsS --cacert "$CA" "$SITE/api/v4/health/ready" | grep -q '"schema_state":"current"'
+          docker compose exec -T api python -c "from app.config import get_settings; assert not get_settings().hub.enabled"
+      - name: Service logs
+        if: failure()
+        run: |
+          (cd compose && docker compose logs --no-color)
+          (cd hub/deploy/compose && docker compose logs --no-color)
+      - name: Remove
+        if: always()
+        run: |
+          (cd hub/deploy/compose && docker compose down -v) || true
+          (cd compose && docker compose down -v)

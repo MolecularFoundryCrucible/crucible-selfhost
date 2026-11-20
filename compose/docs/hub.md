@@ -21,7 +21,7 @@ One of:
 
 ## 1. Register the Hub with the API
 
-In the bundle's directory (`crucible-api/deploy/compose`), create the secret shared by the API and the Hub:
+In the bundle's directory (`crucible-selfhost/compose`), create the secret shared by the API and the Hub:
 
 ```bash
 openssl rand -hex 32 > secrets/HUB_AUTH_CLIENT_SECRET
@@ -49,7 +49,7 @@ Clone the Hub next to this repository and create its secrets. The first one is t
 git clone --branch v1.8.0 https://github.com/MolecularFoundryCrucible/crucible-hub.git
 cd crucible-hub/deploy/compose
 mkdir -p secrets && chmod 700 secrets
-cp /path/to/crucible-api/deploy/compose/secrets/HUB_AUTH_CLIENT_SECRET secrets/hub_auth_client_secret
+cp /path/to/crucible-selfhost/compose/secrets/HUB_AUTH_CLIENT_SECRET secrets/hub_auth_client_secret
 printf 'k1:%s' "$(openssl rand 32 | basenc --base64url | tr -d '=\n')" > secrets/hub_session_keys
 openssl rand -base64 32 | tr -d '\n' > secrets/hub_session_database_password
 openssl rand -base64 32 | tr -d '\n' > secrets/hub_db_admin_password

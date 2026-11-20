@@ -1,6 +1,6 @@
 # Operations
 
-Part of the [Docker Compose installation guide](../README.md). Commands run in `deploy/compose`.
+Part of the [Docker Compose installation guide](../README.md). Commands run in `compose`.
 
 ## Secrets
 
@@ -71,16 +71,17 @@ To move to a new host, copy the repository, `.env`, `secrets/` and the backup; s
 ```bash
 (umask 077; docker compose exec -T db pg_dump --username postgres --dbname crucible --format custom | age --recipient age1yourpublickey > ~/crucible-backups/before-upgrade.dump.age)
 git pull
-docker compose up -d --build --wait
+docker compose pull
+docker compose up -d --wait
 ```
 
 The `migrate` step applies pending database migrations before the new API starts. If a migration fails, the database remains at the last completed migration, the API does not start, and `docker compose logs migrate` reports the cause; fix it and run the same command again, or restore the backup.
 
-After each upgrade, compare `.env` with `.env.example` for new settings. An installation created before 4.0.0 requires additional steps: see [Upgrading from 3.3.1 to 4.0.0](../../../docs/upgrading/3.3-to-4.0.md#docker-compose).
+After each upgrade, compare `.env` with `.env.example` for new settings. An installation created before 4.0.0 requires additional steps: see [Upgrading from 3.3.1 to 4.0.0](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/upgrading/3.3-to-4.0.md#docker-compose).
 
 ### The API at /api/v4
 
-From 4.0.2 the bundle serves the API at `/api/v4`, and everything under `/api/v3` answers 308 to the same path under `/api/v4`, so existing clients keep working. An installation set up earlier needs three changes after upgrading:
+The bundle serves the API at `/api/v4`; earlier versions served it at `/api/v3`, which now answers 308 to the same path under `/api/v4`, so existing clients keep working. An installation set up at `/api/v3` needs three changes after upgrading:
 
 - If ORCID is used, register the new callback with ORCID: `https://<your address>/api/v4/oauth/callback/orcid`, or `.../api/v4/auth/hub/callback` with `ORCID_LEGACY_CALLBACK=true`. Keep the old one registered until the upgrade is done.
 - If the Hub is installed, set `HUB_AUTH_PUBLIC_API_URL` and `CRUCIBLE_API_BASE_URL` in the Hub's `.env` to the `/api/v4` address, and restart it.

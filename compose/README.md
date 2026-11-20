@@ -9,14 +9,14 @@ The quick start gives a server that answers on the local host only, with passwor
 - Linux with Docker Engine 28 or later and the Compose plugin 2.20 or later (`docker version`, `docker compose version`). Older Docker releases expose ports published to the local host to other hosts on the same network segment.
 - About 2 GB of free memory and a few GB of disk to start; the database grows with the data.
 - A user allowed to run Docker: a member of the `docker` group, or prefix each `docker` command with `sudo`.
-- A copy of this repository. Images are built from it until versioned images are published.
+- A copy of this repository. The images are downloaded from public registries.
 
 ## Quick start
 
 ### 1. Create the secrets
 
 ```bash
-cd deploy/compose
+cd compose
 mkdir -p secrets && chmod 700 secrets
 for name in POSTGRES_PASSWORD PGDB_PW CRUCIBLE_SECRET_KEY CRUCIBLE_AUTH_PEPPER S3_SECRET_ACCESS_KEY; do
   openssl rand -hex 32 > "secrets/$name"
@@ -38,11 +38,11 @@ The defaults serve `http://localhost:8080/api/v4/` to the local host only and ne
 ### 3. Start the services
 
 ```bash
-docker compose up -d --build --wait
+docker compose up -d --wait
 curl http://localhost:8080/api/v4/health/ready
 ```
 
-The first start builds the API image and creates the database, its schema and the storage buckets; `--wait` returns once every service is healthy. The response contains `"status":"ok"` and `"schema_state":"current"`. The interactive API documentation is at `http://localhost:8080/api/v4/docs`.
+The first start downloads the images and creates the database, its schema and the storage buckets; `--wait` returns once every service is healthy. The response contains `"status":"ok"` and `"schema_state":"current"`. The interactive API documentation is at `http://localhost:8080/api/v4/docs`.
 
 ### 4. Create the first administrator
 
@@ -87,4 +87,4 @@ ssh -L 8080:localhost:8080 you@server
 | [Operations](docs/operations.md) | Secrets, backups, restore, upgrades, cleanup jobs, removal |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and their causes |
 
-The settings behind these pages are described in [Authentication configuration](../../docs/sign_in_operations.md) and [Multipart uploads](../../docs/uploads.md).
+The settings behind these pages are described in [Authentication configuration](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/sign_in_operations.md) and [Multipart uploads](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/uploads.md).
