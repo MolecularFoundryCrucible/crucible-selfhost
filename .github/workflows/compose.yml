@@ -99,7 +99,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: MolecularFoundryCrucible/crucible-hub
-          ref: b85e131223f7677e55729036b412647bb509fff3 # v1.8.0
+          ref: 15b75fea31ae35a2fd39287b7d0a9de71886bbe4 # v1.8.2
           path: hub
           persist-credentials: false
       - name: Start the API with Hub sign-in, over HTTPS with Caddy's local CA
@@ -139,10 +139,10 @@ jobs:
           chmod 444 secrets/hub_*
           cp example.env .env
           sed -i "s#^HUB_PUBLIC_ORIGIN=.*#HUB_PUBLIC_ORIGIN=$SITE#; s#^HUB_AUTH_PUBLIC_API_URL=.*#HUB_AUTH_PUBLIC_API_URL=$SITE/api/v4#" .env
-          echo "HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.8.0@sha256:2c1c9dc2bf6fd80deb164dd60b946c3874c385d8deab1f8e382f1a8a115d3651" >> .env
+          echo "HUB_IMAGE=ghcr.io/molecularfoundrycrucible/crucible-hub:1.8.2@sha256:57c1971e4d85e4978e3d77c31e205b3c2b670977ad094cd36d683d9fe4ba4eb0" >> .env
           docker compose pull hub hub-setup
           docker compose up -d --wait
-          test "$(docker inspect "$(docker compose ps -q hub)" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "1.8.0"
+          test "$(docker inspect "$(docker compose ps -q hub)" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "1.8.2"
       - name: The Hub answers through the front door, and sign-in through the API offers ORCID and a password
         run: |
           curl -fsS --cacert "$CA" "$SITE/hub/health" | grep -q '"sessions":"ok"'
