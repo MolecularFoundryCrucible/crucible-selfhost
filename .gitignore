@@ -1,5 +1,40 @@
-__pycache__/
+# Secrets and settings of an installation, wherever they are kept
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.crt
+*.p12
 
-# Local agent configuration
+# Installation-specific Caddy snippets (compose/local/README explains them)
+compose/local/*
+!compose/local/README
+
+# Backups and database dumps
+*.dump
+*.dump.age
+*.sql
+*.sql.gz
+crucible-backups/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local agent configuration; AGENTS.md is the shared one
 .claude/
 CLAUDE.md
+.codex/
+.gemini/
+GEMINI.md
+.cursor/
