@@ -83,7 +83,7 @@ After each upgrade, compare `.env` with `.env.example` for new settings. An inst
 
 The bundle serves the API at `/api/v4`; earlier versions served it at `/api/v3`, which now answers 308 to the same path under `/api/v4`, so existing clients keep working. An installation set up at `/api/v3` needs three changes after upgrading:
 
-- If ORCID is used, register the new callback with ORCID: `https://<your address>/api/v4/oauth/callback/orcid`, or `.../api/v4/auth/hub/callback` with `ORCID_LEGACY_CALLBACK=true`. Keep the old one registered until the upgrade is done.
+- If ORCID is used, register the new callback with ORCID: `https://<your address>/api/v4/oauth/callback/orcid`. Keep the old one registered until the upgrade is done.
 - If the Hub is installed, set `HUB_AUTH_PUBLIC_API_URL` and `CRUCIBLE_API_BASE_URL` in the Hub's `.env` to the `/api/v4` address, and restart it.
 - Point clients at `/api/v4` when convenient: `crucible config set api_url https://<your address>/api/v4`. nano-crucible 4.0.1 and later sign in through the redirect; 4.0.0 does not.
 
