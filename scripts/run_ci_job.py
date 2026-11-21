@@ -30,8 +30,9 @@ def clone_other_repository(step: dict, root: Path) -> None:
     options = step.get("with", {})
     name = options["repository"].split("/")[-1]
     sibling = REPO.parent / name
-    source = ["git", "clone", "-q", str(sibling)] if sibling.is_dir() else ["gh", "repo", "clone", options["repository"], "--", "-q"]
-    subprocess.run([*source, str(root / options["path"])], check=True)
+    target = str(root / options["path"])
+    command = ["git", "clone", "-q", str(sibling), target] if sibling.is_dir() else ["gh", "repo", "clone", options["repository"], target, "--", "-q"]
+    subprocess.run(command, check=True)
     subprocess.run(["git", "checkout", "-q", options["ref"]], cwd=root / options["path"], check=True)
 
 
