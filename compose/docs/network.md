@@ -188,6 +188,8 @@ servers {
 
 The proxy must pass `Host`, set `X-Forwarded-For` to the client address and `X-Forwarded-Proto` to `https`, and be the only host that can reach this port. Without the trusted address, all users appear to connect from the proxy, and the sign-in attempt limits treat them as a single client.
 
+With the [Hub](hub.md), also set `HUB_TRUSTED_PROXY_HOPS=2` in the Hub's `.env`. Caddy appends the institutional proxy's address to `X-Forwarded-For`, so the client address is second from the right; with the default of 1, the Hub's sign-in attempt limits treat every user as the institutional proxy.
+
 ## Replacing Caddy
 
 Caddy can be replaced by any reverse proxy that meets these requirements:
