@@ -77,12 +77,23 @@ jobs:
           CRUCIBLE_BACKUP_DIR="$RUNNER_TEMP/backups" docker compose run --rm --user "$(id -u):$(id -g)" files-backup
           find "$RUNNER_TEMP/backups/files/crucible-files" -path '*/_files/*' -type f | grep -q .
           find "$RUNNER_TEMP/backups/files/crucible-records" -name record.json -not -path '*/_crucible-check/*' | grep -q .
+      - name: Behind an institutional proxy, Caddy appends that proxy's address to X-Forwarded-For, so the Hub needs two hops
+        run: |
+          image=$(docker inspect --format '{{.Config.Image}}' "$(docker compose ps -q proxy)")
+          printf ':3000 {\n\trespond "{header.X-Forwarded-For}"\n}\n' > "$RUNNER_TEMP/echo.caddy"
+          docker run -d --name xff-echo --network crucible -v "$RUNNER_TEMP/echo.caddy:/etc/caddy/Caddyfile:ro" "$image"
+          printf 'servers {\n\ttrusted_proxies static private_ranges\n}\n' > local/global-proxy.caddy
+          CRUCIBLE_HTTP_HOSTS=crucible.mylab.org CRUCIBLE_HUB_UPSTREAM=xff-echo:3000 docker compose up -d --wait proxy
+          seen=$(docker run --rm --network crucible "$image" sh -c 'echo "$(wget -qO- --header "Host: crucible.mylab.org" --header "X-Forwarded-For: 203.0.113.7" http://proxy/hub/) from $(hostname -i)"')
+          echo "$seen"
+          case "$seen" in "203.0.113.7, "*" from "*) test "${seen%% from *}" = "203.0.113.7, ${seen##* from }";; *) exit 1;; esac
       - name: Service logs
         if: failure()
         run: docker compose logs --no-color
       - name: Remove
         if: always()
         run: |
+          docker rm -f xff-echo || true
           docker compose down -v
           rm -f "$RUNNER_TEMP/admin.json"
 
