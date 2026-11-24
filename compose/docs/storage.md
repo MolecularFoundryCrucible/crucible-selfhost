@@ -90,7 +90,7 @@ If the store cannot be served under a path of this site, serve it under its own 
 
 ## Several stores
 
-The API can keep files in more than one store, for example the bundled SeaweedFS and a lab NAS behind an S3 gateway. Uploads go to the store the client chooses, else the project's or the instrument's default store, else the installation's default (crucible-api's [Choosing a store](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/uploads.md)).
+The API can keep files in more than one store, for example the bundled SeaweedFS and a lab NAS behind an S3 gateway. Uploads go to the store the client chooses, else the project's or the instrument's default store, else the installation's default (crucible-api's [Stores](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/uploads.md#stores)).
 
 Each additional store needs a bucket, an address that every client reaches (signed URLs carry its `public_url`), and a key pair. Save the key pair as `secrets/STORAGE_<ID>_ACCESS_KEY_ID` and `secrets/STORAGE_<ID>_SECRET_ACCESS_KEY`, with the store's id in capitals and `_` for `-`, then list every store in `compose.override.yaml`, next to `compose.yaml`. Keep the `local` entry as `compose.yaml` writes it; only its `display_name` may change:
 
@@ -126,7 +126,7 @@ secrets:
     file: ./secrets/STORAGE_LAB_NAS_SECRET_ACCESS_KEY
 ```
 
-Then run `docker compose up -d --wait` and `storage check`, which checks every store; `docker compose exec api python -m app.cli storage stores` lists them with their file counts. The fields of a store, including `gcs` stores, are described in crucible-api's [docs/stores.example.json](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/stores.example.json) and [uploads guide](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/uploads.md).
+Then run `docker compose up -d --wait` and `storage check`, which checks every store; `docker compose exec api python -m app.cli storage stores` lists them with their file counts. The fields of a store, including `gcs` stores, are described in crucible-api's [docs/stores.example.json](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/stores.example.json) and [Stores](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/uploads.md#stores).
 
 - A store's id is recorded on every file in it: choose it once and never change it. Removing a store from the list leaves its files answering `503` `store_unavailable` until it is listed again.
 - With the Hub, browser uploads go to each store's own address, so each upload bucket needs the CORS rule described under [External S3-compatible storage](#external-s3-compatible-storage).
