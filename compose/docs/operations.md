@@ -12,7 +12,7 @@ Secrets are files in `secrets/`, provided to the containers as Docker Compose se
 | `PGDB_PW` | The unprivileged `crucible` database account used by the API |
 | `CRUCIBLE_SECRET_KEY` | Signs list cursors and the short-lived cookies and codes of the sign-in pages. Changing it interrupts sign-ins in progress, not existing sessions |
 | `CRUCIBLE_AUTH_PEPPER` | Mixed into every password before it is stored, so that a copy of the database alone cannot be used to guess passwords. If it is lost, all passwords become unusable |
-| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Key pair the API uses with the file store; SeaweedFS uses the same pair. With an external store, these files hold that store's key pair |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Key pair the API uses with the file store, which it receives as `STORAGE_LOCAL_ACCESS_KEY_ID` and `STORAGE_LOCAL_SECRET_ACCESS_KEY`; SeaweedFS and `files-backup` use the same pair. With an external store, these files hold that store's key pair |
 
 The directory is accessible only to its owner (`700`); the files are readable by all users (`644`) because the database container reads them as its own user.
 
@@ -78,6 +78,18 @@ docker compose up -d --wait
 The `migrate` step applies pending database migrations before the new API starts. If a migration fails, the database remains at the last completed migration, the API does not start, and `docker compose logs migrate` reports the cause; fix it and run the same command again, or restore the backup.
 
 After each upgrade, compare `.env` with `.env.example` for new settings. An installation created before 4.0.0 requires additional steps: see [Upgrading from 3.3.1 to 4.0.0](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/upgrading/3.3-to-4.0.md#docker-compose).
+
+### Recording the store on existing files
+
+API releases after 4.0.1 record on every file the store that holds it; the bundle names its store `local`. Files stored before the upgrade have none and answer `503` `store_unavailable` until it is recorded. After `docker compose up -d --wait` with the new release, run:
+
+```bash
+docker compose exec api python -m app.cli files assign-store --store local
+docker compose exec api python -m app.cli files assign-store --store local --commit
+docker compose exec api python -m app.cli storage stores
+```
+
+The first command counts the files without a store, the second records `local` on them, and `storage stores` then lists every file under `local` and exits 0. An installation on Google Cloud Storage first moves its settings from `CRUCIBLE_STORAGE_BACKEND=gcs` to `compose.override.yaml` ([File storage](storage.md#google-cloud-storage)). Background: crucible-api's [Moving from the single-store settings](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/uploads.md#moving-from-the-single-store-settings).
 
 ### The API at /api/v4
 

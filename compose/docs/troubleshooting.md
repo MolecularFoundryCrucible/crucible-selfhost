@@ -30,6 +30,7 @@ Part of the [Docker Compose installation guide](../README.md). Commands run in `
 
 | Symptom | Cause and fix |
 |---|---|
+| `503` `store_unavailable` for files stored before an upgrade | Their store is not recorded yet: run `files assign-store` ([Recording the store on existing files](operations.md#recording-the-store-on-existing-files)) |
 | `SignatureDoesNotMatch` on uploads or downloads | The client reached the server at an address other than `CRUCIBLE_PUBLIC_URL` (see [File storage](storage.md#how-files-are-stored)), or an upstream proxy changed the path or `Host` |
 | `seaweedfs` is unhealthy and its log reports `permission denied` under `/data` | The directory in `CRUCIBLE_FILES_DIR` is not owned by uid 1000 (Docker creates a missing directory owned by root). Run `sudo chown -R 1000:1000` on it, then `docker compose up -d --wait` |
 | Uploads and download links fail with `503` ("Storage is temporarily unavailable") after an upgrade, and `docker compose ps` shows no `seaweedfs` | `.env` lacks `COMPOSE_PROFILES=bundled-storage` (see [Upgrading from 3.3.1 to 4.0.0](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/upgrading/3.3-to-4.0.md#docker-compose)) |

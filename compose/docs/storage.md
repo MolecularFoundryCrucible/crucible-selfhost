@@ -8,6 +8,7 @@ The bundle stores files in SeaweedFS, an S3-compatible store that runs alongside
 
 - Uploaded files go to the `crucible-files` bucket. A copy of each record's metadata (`record.json` and `metadata.json`, written on every change) goes to `crucible-records`.
 - Both buckets reside in the `seaweedfs-data` Docker volume (under `/var/lib/docker/volumes/`, or `~/.local/share/docker/volumes/` with rootless Docker) unless a [data directory](#data-directory) is configured.
+- The API knows the store by the id `local` and records it on every file. Keep that id when the store behind it changes, for example after copying the files to an external store.
 - File content never passes through the API. Clients obtain short-lived signed URLs from the API and transfer the bytes directly, through Caddy at `/crucible-files/`, which forwards them to SeaweedFS unchanged and strips any API key or cookie the client sends.
 - The records bucket is not reachable externally. SeaweedFS runs on a dedicated internal network that only the API and Caddy join; the Hub cannot reach it.
 
@@ -87,35 +88,94 @@ With the Hub, browser uploads go to the store's own address, so the upload bucke
 
 If the store cannot be served under a path of this site, serve it under its own name (for example `files.mylab.org`, with its own certificate) and set `CRUCIBLE_S3_PUBLIC_URL` to that address.
 
+## Several stores
+
+The API can keep files in more than one store, for example the bundled SeaweedFS and a lab NAS behind an S3 gateway. Uploads go to the store the client chooses, else the project's or the instrument's default store, else the installation's default (crucible-api's [Choosing a store](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/uploads.md)).
+
+Each additional store needs a bucket, an address that every client reaches (signed URLs carry its `public_url`), and a key pair. Save the key pair as `secrets/STORAGE_<ID>_ACCESS_KEY_ID` and `secrets/STORAGE_<ID>_SECRET_ACCESS_KEY`, with the store's id in capitals and `_` for `-`, then list every store in `compose.override.yaml`, next to `compose.yaml`. Keep the `local` entry as `compose.yaml` writes it; only its `display_name` may change:
+
+```yaml
+x-stores: &stores
+  environment:
+    STORAGE_STORES: >-
+      [{"id": "local",
+        "display_name": "Lab storage",
+        "type": "s3",
+        "bucket": "${CRUCIBLE_UPLOAD_BUCKET:-crucible-files}",
+        "endpoint_url": "${CRUCIBLE_S3_ENDPOINT_URL:-http://seaweedfs:8333}",
+        "public_url": "${CRUCIBLE_S3_PUBLIC_URL:-${CRUCIBLE_PUBLIC_URL:-http://localhost:${CRUCIBLE_HTTP_PORT:-8080}}}",
+        "region": "${CRUCIBLE_S3_REGION:-us-east-1}"},
+       {"id": "lab-nas",
+        "display_name": "Lab NAS",
+        "type": "s3",
+        "bucket": "crucible",
+        "endpoint_url": "https://s3.mylab.org"}]
+    STORAGE_DEFAULT_STORE: local
+  secrets:
+    - STORAGE_LAB_NAS_ACCESS_KEY_ID
+    - STORAGE_LAB_NAS_SECRET_ACCESS_KEY
+
+services:
+  api: *stores
+  storage-cleanup: *stores
+
+secrets:
+  STORAGE_LAB_NAS_ACCESS_KEY_ID:
+    file: ./secrets/STORAGE_LAB_NAS_ACCESS_KEY_ID
+  STORAGE_LAB_NAS_SECRET_ACCESS_KEY:
+    file: ./secrets/STORAGE_LAB_NAS_SECRET_ACCESS_KEY
+```
+
+Then run `docker compose up -d --wait` and `storage check`, which checks every store; `docker compose exec api python -m app.cli storage stores` lists them with their file counts. The fields of a store, including `gcs` stores, are described in crucible-api's [docs/stores.example.json](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/stores.example.json) and [uploads guide](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/uploads.md).
+
+- A store's id is recorded on every file in it: choose it once and never change it. Removing a store from the list leaves its files answering `503` `store_unavailable` until it is listed again.
+- With the Hub, browser uploads go to each store's own address, so each upload bucket needs the CORS rule described under [External S3-compatible storage](#external-s3-compatible-storage).
+- `files-backup` copies the `local` store and the records bucket only; back up the other stores with their own tools.
+
 ## Google Cloud Storage
 
-Use `CRUCIBLE_STORAGE_BACKEND=gcs`, not Google's S3 interface, which rejects the checksums that S3 uploads send.
+Use a `gcs` store, not Google's S3 interface, which rejects the checksums that S3 uploads send.
 
 In the Google Cloud project:
 
-1. Create a files bucket and a records bucket (uniform bucket-level access, public access prevention). On the files bucket, add lifecycle rules that delete replaced content after 14 days and abandoned uploads after eight days (an upload session lasts seven):
+1. Create a files bucket and a records bucket (uniform bucket-level access, public access prevention). On the files bucket, add a lifecycle rule that aborts abandoned uploads after eight days (an upload session lasts seven):
 
    ```json
-   {"rule": [
-     {"action": {"type": "Delete"}, "condition": {"daysSinceCustomTime": 14}},
-     {"action": {"type": "AbortIncompleteMultipartUpload"}, "condition": {"age": 8}}
-   ]}
+   {"rule": [{"action": {"type": "AbortIncompleteMultipartUpload"}, "condition": {"age": 8}}]}
    ```
 
-   `files restore` and the version cleanup apply to S3 stores only.
+   Replaced content is kept and removed by `storage-cleanup`, as with SeaweedFS, so `files restore` works.
 2. Create a service account with Storage Object Admin on both buckets and Service Account Token Creator on itself, so that it can sign URLs without a key.
 3. If the Hub uploads from browsers, add a CORS rule on the files bucket for the Hub's address: `PUT` and `GET`, headers `content-type` and `x-goog-hash`, exposing `ETag`.
 
-Assign that identity to the server, using the first option that applies:
+Describe the store in `compose.override.yaml`, next to `compose.yaml`. It keeps the bundle's store id, `local`:
 
-- **On Google Cloud** (a VM, Cloud Run, GKE): attach the service account; no key is needed. With GKE Workload Identity Federation for the Kubernetes service account itself, also set `MULTIPART_UPLOAD_SIGNER` to the service account's email and grant the Kubernetes identity Token Creator on it; the server then acts as that service account for all operations.
-- **Elsewhere**, such as this bundle on a lab server: Workload Identity Federation, if the identity provider supports it. Otherwise a key, where the organization permits keys: save it as `secrets/google-credentials.json` and add `compose.override.yaml` next to `compose.yaml`:
+```yaml
+x-google: &google
+  environment:
+    STORAGE_STORES: >-
+      [{"id": "local", "display_name": "Lab storage", "type": "gcs",
+        "bucket": "mylab-crucible-files", "project": "mylab-project"}]
+
+services:
+  api: *google
+  storage-cleanup: *google
+```
+
+Assign the service account's identity to the server, using the first option that applies:
+
+- **On Google Cloud** (a VM, Cloud Run, GKE): attach the service account; no key is needed. With GKE Workload Identity Federation for the Kubernetes service account itself, also add `"service_account": "<the service account's email>"` to the store and grant the Kubernetes identity Token Creator on it; the server then acts as that service account for all operations.
+- **Elsewhere**, such as this bundle on a lab server: Workload Identity Federation, if the identity provider supports it. Otherwise a key, where the organization permits keys: save it as `secrets/google-credentials.json` and give it to the store in `compose.override.yaml`:
 
   ```yaml
   x-google: &google
     environment:
-      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/google-credentials.json
-    secrets: [google-credentials.json]
+      STORAGE_STORES: >-
+        [{"id": "local", "display_name": "Lab storage", "type": "gcs",
+          "bucket": "mylab-crucible-files", "project": "mylab-project"}]
+    secrets:
+      - source: google-credentials.json
+        target: STORAGE_LOCAL_CREDENTIALS
 
   services:
     api: *google
@@ -129,9 +189,7 @@ Assign that identity to the server, using the first option that applies:
 In `.env`, remove `COMPOSE_PROFILES=bundled-storage` and set:
 
 ```bash
-CRUCIBLE_STORAGE_BACKEND=gcs
-CRUCIBLE_UPLOAD_BUCKET=mylab-crucible-files
 CRUCIBLE_RECORD_BUCKET=mylab-crucible-records
 ```
 
-Then run `docker compose up -d --wait` and `storage check`. `files-backup` copies S3 stores only; protect a Google bucket with Google's tools (object versioning, soft delete, or a copy to another bucket).
+Then run `docker compose up -d --wait` and `storage check`. The store's settings are described in crucible-api's [Google Cloud Storage](https://github.com/MolecularFoundryCrucible/crucible-api/blob/main/docs/uploads.md#google-cloud-storage). `files-backup` copies S3 stores only; protect a Google bucket with Google's tools (object versioning, soft delete, or a copy to another bucket).
