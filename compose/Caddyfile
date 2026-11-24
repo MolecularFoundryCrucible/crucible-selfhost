@@ -33,9 +33,9 @@ redir /api/v4 /api/v4/ permanent
 redir @api_v3 /api/v4{re.api_v3.1}{?query} 308
 redir /hub /hub/ permanent
 
-# Sign-in (the OAuth routes, the provider callbacks, the API's own forms, and the routes older Hub
-# releases call): small requests only, and a bounded wait for the API, as the Foundry's front door sets.
-@sign_in path /api/v4/oauth/* /api/v4/auth/hub/*
+# Sign-in (the OAuth routes, the provider callbacks and the API's own forms): small requests only,
+# and a bounded wait for the API, as the Foundry's front door sets.
+@sign_in path /api/v4/oauth/*
 handle @sign_in {
 	request_body {
 		max_size 8KB

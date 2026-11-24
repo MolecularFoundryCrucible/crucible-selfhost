@@ -81,7 +81,7 @@ After each upgrade, compare `.env` with `.env.example` for new settings. An inst
 
 ### Recording the store on existing files
 
-API releases after 4.0.1 record on every file the store that holds it; the bundle names its store `local`. Files stored before the upgrade have none and answer `503` `store_unavailable` until it is recorded. After `docker compose up -d --wait` with the new release, run:
+API 4.1.0 and later record on every file the store that holds it; the bundle names its store `local`. Files stored before the upgrade have none and answer `503` `store_unavailable` until it is recorded. After `docker compose up -d --wait` with the new release, run:
 
 ```bash
 docker compose exec api python -m app.cli files assign-store --store local
