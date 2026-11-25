@@ -4,7 +4,7 @@
 name: crucible
 
 x-api: &api
-  image: ${CRUCIBLE_API_IMAGE:-ghcr.io/molecularfoundrycrucible/crucible-api:4.1.0@sha256:48bad778f752f1b3b36f097b046a5284ab1c2fac28635d87dd8efa21fcbb0147}
+  image: ${CRUCIBLE_API_IMAGE:-ghcr.io/molecularfoundrycrucible/crucible-api:4.1.1@sha256:57f0d84dfdf35a4a6aa10797fcb654ef49d82e81101c996bc5b46413cd8ef2e2}
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   read_only: true
